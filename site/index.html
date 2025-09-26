@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DJ Touchzouk</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Anta&display=swap');
+
+    body {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+      background-color: #000;
+      color: #fff;
+      font-family: "Anta", sans-serif;
+    }
+
+    .words {
+      font-size: 7vh;
+    }
+
+    .words div {
+      position: absolute;
+    }
+
+    .words.for_touch div:nth-child(1) {
+      top: 5vh;
+      left: 10vw;
+    }
+
+    .words.for_touch div:nth-child(2) {
+      top: 14vh;
+      left: 30vw;
+    }
+
+    .words.for_touch div:nth-child(3) {
+      top: 42vh;
+      right: 30vw;
+    }
+
+    .words.for_touch div:nth-child(4) {
+      top: 52vh;
+      right: 10vw;
+    }
+
+    .words.for_zouk div:nth-child(1) {
+      top: 45vh;
+      left: 10vw;
+    }
+
+    .words.for_zouk div:nth-child(2) {
+      top: 53vh;
+      left: 22vw;
+    }
+
+    .words.for_zouk div:nth-child(3) {
+      top: 60vh;
+      left: 30vw;
+    }
+
+    .words.for_zouk div:nth-child(4) {
+      top: 86vh;
+      right: 30vw;
+    }
+
+    .touch_logo {
+      position: absolute;
+      top: 25vh;
+      width: 50vh;
+    }
+
+    .zouk_logo {
+      position: absolute;
+      top: 70vh;
+      width: 50vh;
+    }
+
+    .hand {
+      position: absolute;
+      width: 40vh;
+      top: 19vh;
+      right: calc(50vw + 25vh);
+    }
+
+    .zouk_logo>path,
+    .touch_logo>path {
+      fill: none;
+      stroke-width: 2.565;
+      stroke-linecap: butt;
+      stroke-linejoin: miter;
+      stroke-opacity: 1;
+      stroke: #fff;
+    }
+
+    .zouk_logo .letters_k_endings .letters_k_ending {
+      fill: #fff;
+      stroke: none;
+      fill-opacity: 1;
+    }
+
+    .hand path {
+      stroke: #fff;
+      stroke-width: 1.3;
+      stroke-linecap: butt;
+      stroke-linejoin: miter;
+      stroke-opacity: 1;
+      fill: none;
+    }
+
+    /* Hand Animation */
+    .hand {
+      --length-main: 200;
+      --length-between: 11;
+      --length-finger: 17;
+      --full-length: calc(var(--length-main) + var(--length-between) + var(--length-finger));
+      --initial-delay: 0s;
+      --animation-full-time: 3s;
+      --animation-main-time: calc(var(--animation-full-time) * var(--length-main) / var(--full-length));
+      --animation-between-time: calc(var(--animation-full-time) * var(--length-between) / var(--full-length));
+      --animation-finger-time: calc(var(--animation-full-time) * var(--length-finger) / var(--full-length));
+    }
+
+    .hand_main_outline {
+      stroke-dasharray: var(--length-main);
+      stroke-dashoffset: var(--length-main);
+      animation: draw var(--animation-main-time) ease-in-out var(--initial-delay) forwards;
+    }
+
+    .hand_between {
+      stroke-dasharray: var(--length-between);
+      stroke-dashoffset: var(--length-between);
+      animation: draw var(--animation-between-time) ease-in-out calc(var(--animation-main-time) + var(--initial-delay)) forwards;
+    }
+
+    .hand_finger_down {
+      stroke-dasharray: var(--length-finger);
+      stroke-dashoffset: var(--length-finger);
+      animation: draw var(--animation-finger-time) ease-in-out calc(var(--animation-main-time) + var(--animation-between-time) + var(--initial-delay)) forwards;
+    }
+
+    /* Touch Animation */
+    .touch_logo {
+      --length-main: 86;
+      --length-h-top: 28;
+      --length-group: 38.5;
+      --length-t-bottom: 11;
+      --length-full: calc(var(--length-main) + var(--length-h-top) + var(--length-group) + var(--length-t-bottom));
+      --initial-delay: 2s;
+      --animation-full-time: 3s;
+      --animation-main-time: calc(var(--animation-full-time) * var(--length-main) / var(--length-full));
+      --animation-h-top-time: calc(var(--animation-full-time) * var(--length-h-top) / var(--length-full));
+      --animation-group-time: calc(var(--animation-full-time) * var(--length-group) / var(--length-full));
+      --animation-t-bottom-time: calc(var(--animation-full-time) * var(--length-t-bottom) / var(--length-full));
+    }
+
+    .touch_logo .letters_main {
+      stroke-dasharray: var(--length-main);
+      stroke-dashoffset: var(--length-main);
+      animation: draw var(--animation-main-time) ease-in-out var(--initial-delay) forwards;
+    }
+
+    .touch_logo .letters_h_top {
+      stroke-dasharray: var(--length-h-top);
+      stroke-dashoffset: var(--length-h-top);
+      animation: draw var(--animation-h-top-time) ease-in-out calc(var(--animation-main-time) + var(--initial-delay)) forwards;
+    }
+
+    .touch_logo .letters_to,
+    .touch_logo .letters_c_bottom,
+    .touch_logo .letters_h_bottom {
+      stroke-dasharray: var(--length-group);
+      stroke-dashoffset: var(--length-group);
+      animation: draw var(--animation-group-time) ease-in-out calc(var(--animation-main-time) + var(--animation-h-top-time) + var(--initial-delay)) forwards;
+    }
+
+    .touch_logo .letters_t_bottom {
+      stroke-dasharray: var(--length-t-bottom);
+      stroke-dashoffset: var(--length-t-bottom);
+      animation: draw var(--animation-t-bottom-time) ease-in-out calc(var(--animation-main-time) + var(--animation-h-top-time) + var(--animation-group-time) + var(--initial-delay)) forwards;
+    }
+
+    /* Zouk Animation */
+    .zouk_logo {
+      --length-zo: 116;
+      --length-u: 40;
+      --length-k: 30;
+      --full-length: calc(var(--length-zo) + var(--length-u) + var(--length-k));
+      --animation-full-time: 3s;
+      --initial-delay: 4s;
+      --animation-zo-time: calc(var(--animation-full-time) * var(--length-zo) / var(--full-length));
+      --animation-u-time: calc(var(--animation-full-time) * var(--length-u) / var(--full-length));
+      --animation-k-time: calc(var(--animation-full-time) * var(--length-k) / var(--full-length));
+    }
+
+    .zouk_logo .letters_zo {
+      stroke-dasharray: var(--length-zo);
+      stroke-dashoffset: var(--length-zo);
+      animation: draw var(--animation-zo-time) ease-in-out var(--initial-delay) forwards;
+    }
+
+    .zouk_logo .letters_u {
+      stroke-dasharray: var(--length-u);
+      stroke-dashoffset: var(--length-u);
+      animation: draw var(--animation-u-time) ease-in-out calc(var(--animation-zo-time) + var(--initial-delay)) forwards;
+    }
+
+    .zouk_logo .letters_k_right {
+      stroke-dasharray: var(--length-k);
+      stroke-dashoffset: var(--length-k);
+      animation: draw var(--animation-k-time) ease-in-out calc(var(--animation-zo-time) + var(--animation-u-time) + var(--initial-delay)) forwards;
+    }
+
+    .zouk_logo .letters_k_endings {
+      opacity: 0;
+      animation: pop 0.001s ease-in-out calc(var(--animation-zo-time) + var(--animation-u-time) + var(--animation-k-time) + var(--initial-delay)) forwards;
+    }
+
+    @keyframes draw {
+      to {
+        stroke-dashoffset: 0;
+      }
+    }
+
+    @keyframes pop {
+      to {
+        opacity: 1;
+      }
+    }
+  </style>
+
+</head>
+
+<body>
+  <div class="words for_touch">
+    <div>What</div>
+    <div>will</div>
+    <div>your</div>
+    <div>heart?</div>
+  </div>
+  <div class="words for_zouk">
+    <div>What</div>
+    <div>will</div>
+    <div>you</div>
+    <div>to?</div>
+  </div>
+
+  <svg class="hand" width="400" viewBox="5 56 74 43" xmlns="http://www.w3.org/2000/svg">
+    <path class="hand_main_outline"
+      d="m 7.7549602,57.963355 c 11.5213388,0.09659 23.1410578,4.627131 30.6302498,7.199609 6.802453,2.336588 15.09316,5.006226 22.724516,5.94726 5.825179,0.718312 11.100889,0.300416 13.302461,-0.139572 1.937742,-0.387261 3.225845,0.230855 2.93857,1.151891 -0.457447,1.466628 -1.805849,2.906054 -6.11199,4.222959 -5.625424,1.720369 -12.038451,0.715384 -15.065017,0.706987 -3.246289,-0.009 -4.713119,1.99928 -8.03617,2.04669 -2.700654,0.03853 -5.555602,-0.379597 -6.251559,0.01809 -0.695958,0.39769 0.477446,1.843917 1.445158,2.77177 1.168736,1.120597 9.538033,5.176745 11.736859,6.889276 1.920975,1.496131 5.473002,4.468774 4.316355,6.605142 -0.545016,1.006665 -1.507615,1.050386 -2.475574,0.371498 C 56.268056,95.305552 41.969265,88.440585 37.388915,87.117256 32.978598,85.843052 28.827017,84.048405 26.001499,81.292507 22.9543,78.320391 19.386312,74.362935 14.878234,72.666868 10.635838,71.070759 7.9663729,71.170005 5.8759239,71.075073" />
+    <path class="hand_between"
+      d="m 53.464952,77.570502 c 0.979863,2.347708 2.337068,5.34868 1.792712,7.108701 -0.382392,1.236354 -1.844425,2.5306 -2.111205,2.826657" />
+    <path class="hand_between" d="m 47.968939,79.131348 c 0.457513,1.265741 1.086003,4.484317 0.771194,5.932753" />
+    <path class="hand_between" d="m 44.817761,79.03016 c 0.310312,1.239199 0.321448,3.050686 0.128176,3.910309" />
+    <path class="hand_finger_down"
+      d="m 48.368032,91.67429 c -1.476351,1.124839 -5.583918,4.65048 -6.081157,4.886015 -0.667871,0.31636 -1.383289,0.214711 -1.616954,-1.406049 -0.2311,-1.602968 2.095667,-4.464199 3.304211,-5.37813" />
+    <path class="hand_finger_down"
+      d="m 41.51355,88.651288 c -1.335746,0.667874 -4.931378,2.865007 -5.659342,3.304213 -0.472127,0.28485 -1.159987,-0.386663 -1.054535,-1.300595 0.105453,-0.913932 0.738175,-2.179373 2.530886,-3.51512" />
+  </svg>
+  <svg class="touch_logo" width="400" viewBox="30 39 80 27" xmlns="http://www.w3.org/2000/svg">
+    <path
+      d="m 33.260133,42.798217 19.675017,-0.04913 c 5.03102,0 9.208439,3.698481 9.208439,9.257215 0,5.358137 4.331732,9.174239 9.208087,9.174239 4.952438,0 9.208087,-4.149782 9.208087,-9.174239 0,-5.186419 4.103265,-9.208082 9.208085,-9.208082 l 7.951051,-6e-6"
+      class="letters_main" />
+    <path
+      d="m 62.143589,52.006301 c 0,5.311282 -4.184786,9.174242 -9.205674,9.174242 -4.913812,0 -9.182867,-3.990663 -9.182867,-9.174237 v -9.20809"
+      class="letters_to" />
+    <path d="M 43.755048,52.006306 V 62.485464" class="letters_t_bottom" />
+    <path d="m 80.559763,52.006304 c 0,5.823076 5.04093,9.174239 8.949894,9.174239 l 8.200454,0.03385"
+      class="letters_c_bottom" />
+    <path d="m 88.608925,52.006304 17.068755,-0.01693 V 41.497616" class="letters_h_top" />
+    <path d="M 105.67768,52.006304 V 62.481137" class="letters_h_bottom" />
+  </svg>
+  <svg class="zouk_logo" width="400" viewBox="58 86.5 80 27" xmlns="http://www.w3.org/2000/svg">
+    <path
+      d="m 61.194188,90.218124 18.633397,0 -16.392586,18.416176 h 26.326637 c 5.505401,0 9.208087,-4.29707 9.208087,-9.208091 0,-4.774827 -3.628743,-9.208085 -9.208087,-9.208085 -5.510652,0 -9.230691,4.402977 -9.230691,9.208085 v 1.239141"
+      class="letters_zo" />
+    <path
+      d="m 98.969723,99.426209 c 0,5.939421 4.809437,9.208091 9.208087,9.208091 5.48716,0 9.20809,-4.34366 9.20809,-9.208084 l 0,-10.450874"
+      class="letters_u" />
+    <path d="m 132.46673,89.870145 -11.31087,9.556064 11.3358,9.580921" class="letters_k_right" />
+    <g class="letters_k_endings">
+      <path d="m 131.68519,88.883772 3.90233,0.02487 -2.31157,1.988449 -1.27369,-0.601747 z" class="letters_k_ending" />
+      <path d="m 131.61458,109.90922 3.90233,-0.0249 -2.31157,-1.98845 -1.27369,0.60175 z" class="letters_k_ending" />
+    </g>
+  </svg>
+</body>
+
+</html>
