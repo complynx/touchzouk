@@ -7,13 +7,17 @@
   <title>DJ Touchzouk</title>
   <style>
     :root {
-      --animation-unit: 2s;
+      --animation-unit: 1s;
       --touch-start: 0s;
       --hand-start: calc(var(--animation-unit) * 2);
       --zouk-start: calc(var(--animation-unit));
       --hand-duration: calc(var(--animation-unit));
       --touch-duration: calc(var(--animation-unit));
       --zouk-duration: calc(var(--animation-unit));
+      --subtitle-duration: calc(var(--animation-unit));
+      --subtitle-delay: calc(var(--animation-unit) * 2);
+      --primary-color: #fff5de;
+      --perspective: 50vh;
     }
 
     body {
@@ -24,22 +28,16 @@
       overflow-x: hidden;
       box-sizing: border-box;
       background-color: #000;
-      color: #fff;
-      font-family: "Anta", sans-serif;
+      color: var(--primary-color);
     }
 
-    .words {
-      font-size: 7vh;
-    }
-
-    .words div {
-      --pop-len: .6s;
-      --pop-start: 0s;
-      --opacity: .7;
-      position: absolute;
-      transform: translate(-3vh, 0) scale(0.9);
-      opacity: 0;
-      animation: words var(--pop-len) ease-in var(--pop-start) forwards;
+    body>div.perspective-container {
+      --scroll: 0px;
+      width: 100vw;
+      height: 100vh;
+      overflow-x: hidden;
+      overflow-y: auto;
+      perspective: var(--perspective);
     }
 
     @keyframes words {
@@ -49,59 +47,6 @@
       }
     }
 
-    .words.for_touch div:nth-child(1) {
-      top: 10vh;
-      left: 25vw;
-      --pop-start: calc(var(--touch-start) + var(--touch-duration) - var(--pop-len) * 2);
-    }
-
-    .words.for_touch div:nth-child(2) {
-      top: 13vh;
-      right: 37vw;
-      --opacity: .85;
-      --pop-start: calc(var(--touch-start) + var(--touch-duration) - var(--pop-len));
-    }
-
-    .words.for_touch div:nth-child(3) {
-      top: 27vh;
-      right: calc(10vw - 5vh);
-      --opacity: .6;
-      --pop-start: calc(var(--touch-start) + var(--touch-duration));
-    }
-
-    .words.for_touch div:nth-child(4) {
-      top: 38vh;
-      --opacity: .85;
-      right: calc(16vw - 5vh);
-      --pop-start: calc(var(--touch-start) + var(--touch-duration) + var(--pop-len));
-    }
-
-    .words.for_zouk div:nth-child(1) {
-      top: 47vh;
-      left: 20vw;
-      --opacity: .85;
-      --pop-start: calc(var(--zouk-start) + var(--zouk-duration) - var(--pop-len) * 3);
-    }
-
-    .words.for_zouk div:nth-child(2) {
-      top: 59vh;
-      left: calc(17vw - 7vh);
-      --pop-start: calc(var(--zouk-start) + var(--zouk-duration) - var(--pop-len) * 2);
-    }
-
-    .words.for_zouk div:nth-child(3) {
-      top: 69vh;
-      left: calc(24vw - 7vh);
-      --opacity: .85;
-      --pop-start: calc(var(--zouk-start) + var(--zouk-duration) - var(--pop-len));
-    }
-
-    .words.for_zouk div:nth-child(4) {
-      top: 76vh;
-      right: 30vw;
-      --opacity: .7;
-      --pop-start: calc(var(--zouk-start) + var(--zouk-duration));
-    }
 
     .touch_logo {
       position: absolute;
@@ -131,18 +76,18 @@
       stroke-linecap: butt;
       stroke-linejoin: miter;
       stroke-opacity: 1;
-      stroke: #fff;
+      stroke: var(--primary-color);
     }
 
     .zouk_logo .letters_k_endings .letters_k_ending {
-      fill: #fff;
+      fill: var(--primary-color);
       stroke: none;
       fill-opacity: 1;
     }
 
     .hand path {
-      stroke: #fff;
-      stroke-width: .3;
+      stroke: var(--primary-color);
+      stroke-width: .4;
       stroke-linecap: butt;
       stroke-linejoin: miter;
       stroke-opacity: 1;
@@ -262,6 +207,27 @@
       animation: pop 0.001s ease-in-out calc(var(--animation-zo-time) + var(--animation-u-time) + var(--animation-k-time) + var(--initial-delay)) forwards;
     }
 
+    .subtitle {
+      font-family: "Quicksand", sans-serif;
+      font-weight: 300;
+      font-size: 5vh;
+      position: relative;
+      top: 43vh;
+      left: calc(50vw - 28vh);
+      overflow: hidden;
+      overflow-wrap: anywhere;
+      width: 0em;
+      height: 1.3em;
+      word-break: break-all;
+      animation: subtitle var(--subtitle-duration) ease-in-out var(--subtitle-delay) forwards;
+    }
+
+    @keyframes subtitle {
+      to {
+        width: 15em;
+      }
+    }
+
     @keyframes draw {
       to {
         stroke-dashoffset: 0;
@@ -271,40 +237,6 @@
     @keyframes pop {
       to {
         opacity: 1;
-      }
-    }
-
-    @media (min-aspect-ratio: 3/2) {
-      .words.for_touch div:nth-child(1) {
-        left: calc(50vw - 37.5vh);
-      }
-
-      .words.for_touch div:nth-child(2) {
-        left: calc(50vw + 10vh);
-      }
-
-      .words.for_touch div:nth-child(3) {
-        left: calc(50vw + 51vh);
-      }
-
-      .words.for_touch div:nth-child(4) {
-        left: calc(50vw + 35vh);
-      }
-
-      .words.for_zouk div:nth-child(1) {
-        left: calc(50vw - 45.4vh);
-      }
-
-      .words.for_zouk div:nth-child(2) {
-        left: calc(50vw - 56.9vh);
-      }
-
-      .words.for_zouk div:nth-child(3) {
-        left: calc(50vw - 46.3vh);
-      }
-
-      .words.for_zouk div:nth-child(4) {
-        left: calc(50vw + 19.4vh);
       }
     }
 
@@ -327,54 +259,13 @@
         right: 73vw;
       }
 
-      .words {
-        font-size: 7.5vw;
-      }
-
-      .words.for_touch div:nth-child(1) {
-        left: initial;
-        right: 56vw;
-        top: calc(50vh - 43vw);
-      }
-
-      .words.for_touch div:nth-child(2) {
-        left: 52vw;
-        right: initial;
-        top: calc(50vh - 40vw);
-      }
-
-      .words.for_touch div:nth-child(3) {
-        left: 78vw;
-        top: calc(50vh - 26vw);
-      }
-
-      .words.for_touch div:nth-child(4) {
-        left: 64vw;
-        top: calc(50vh - 15vw);
-      }
-
-      .words.for_zouk div:nth-child(1) {
-        left: initial;
-        right: 60vw;
-        top: calc(50vh - 3vw);
-      }
-
-      .words.for_zouk div:nth-child(2) {
-        left: initial;
-        right: 77vw;
-        top: calc(50vh + 8vw);
-      }
-
-      .words.for_zouk div:nth-child(3) {
-        left: initial;
-        right: 67vw;
-        top: calc(50vh + 19vw);
-      }
-
-      .words.for_zouk div:nth-child(4) {
-        left: 57vw;
-        right: initial;
-        top: calc(50vh + 24vw);
+      .subtitle {
+        font-family: "Quicksand", sans-serif;
+        font-weight: 300;
+        font-size: 5vw;
+        position: relative;
+        top: calc(50vh - 8vw);
+        left: 22vw;
       }
     }
 
@@ -382,83 +273,271 @@
       position: relative;
       width: 100vw;
       height: 100vh;
-      overflow: hidden;
+      transform-style: preserve-3d;
+    }
+
+    .parallax-bg {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: #000;
       background-image: url('static/controller_p.jpg');
       background-size: cover;
       background-position: center;
+      background-repeat: no-repeat;
+      transform: translateZ(calc(0px - var(--perspective) / 4)) scale(1.4);
+      z-index: -1;
     }
+
     section.about_me {
+      position: relative;
+      --scroll-reference: 100vh;
+      --offset: 63vw;
+      --height: 85vh;
+      --original-width: 1067;
+      --original-height: 1600;
+      --aspect-ratio: calc(var(--original-width) / var(--original-height));
+      --width: calc(var(--aspect-ratio) * var(--height));
+      --scroll-progress: calc((var(--scroll) - var(--scroll-reference)));
+      --laptop-speed: -0.05;
+      --bg-speed: 0.1;
+      --laptop-offset: 0vh;
+      --bg-offset: -2vh;
+      color: #000436;
+      font-family: "Quicksand", sans-serif;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background-color: var(--primary-color);
+    }
+
+    .photo-parallax {
+      margin-top: 7.5vh;
+      position: relative;
+      width: var(--width);
+      height: var(--height);
+      overflow: hidden;
+      border-radius: 34vh;
+      left: calc(var(--offset) - var(--width));
+    }
+
+    .photo-parallax div {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-size: cover;
+      background-position: center;
+      background-repeat: no-repeat;
+      will-change: transform;
+    }
+
+    .photo-parallax .bg {
+      height: 130%;
+      background-image: url('static/bg.webp');
+      transform: translateY(calc(var(--scroll-progress) * var(--bg-speed) + var(--bg-offset)));
+    }
+
+    .photo-parallax .me-cut {
+      background-image: url('static/me_cut.webp');
+      z-index: 2;
+    }
+
+    .photo-parallax .parallax-laptop {
+      background-image: url('static/laptop.webp');
+      z-index: 3;
+      transform: translateY(calc(var(--scroll-progress) * var(--laptop-speed) + var(--laptop-offset)));
+    }
+
+    .about-me-content {
+      font-size: 2vh;
+      background-color: #ccd1ff88;
+      position: relative;
+      width: 60vh;
+      padding: 0 1em;
+      overflow: hidden;
+      position: absolute;
+      top: 41vh;
+      z-index: 4;
+      left: calc(var(--offset) - var(--width)/2.5);
+      backdrop-filter: blur(20px);
+      transform: translateY(calc(var(--scroll-progress) * var(--laptop-speed) + var(--laptop-offset))) translateY(-34.5vh) perspective(50vh) scaleX(.77) translateY(30vh) rotateY(12deg);
+    }
+
+    .about_me h1 {
+      position: absolute;
+      font-size: 10vh;
+      top: 5vh;
+      left: calc(var(--offset) - var(--width)/2.7);
+      transform: translateY(calc(var(--scroll-progress) * var(--bg-speed) + var(--bg-offset)));
+    }
+
+    .about_me h1>.full {
+      display: block;
+      transform: perspective(50vh) rotateY(-15deg);
+    }
+
+    @media (min-aspect-ratio: 4/3) {
+      section.about_me {
+        --height: 95vh;
+        --offset: 60vw;
+      }
+
+      .photo-parallax {
+        margin-top: 2.5vh;
+      }
+
+      .about_me h1 {
+        font-size: 11vh;
+        top: 3vh;
+      }
+
+      .about-me-content {
+        left: calc(var(--offset) - var(--width)/2.9);
+        transform: translateY(calc(var(--scroll-progress) * var(--laptop-speed) + var(--laptop-offset))) translateY(-36vh) perspective(50vh) scaleX(.85) translateY(30vh) rotateY(12deg);
+      }
+    }
+
+    @media (max-aspect-ratio: 6/7) {
+      section.about_me {
+        background-color: #090a3a;
+        --width: 100vw;
+        --offset: 100vw;
+        --height: calc(var(--width) / var(--aspect-ratio));
+      }
+      .about_me h1 {
+        font-size: 13vw;
+      }
+      .about_me h1>.full {
+        transform: initial;
+        transform: translateY(min(calc(50vh - 70vw), 0px)) translateX(-60vw) translateY(-9vh) perspective(50vh) translateY(7vh) rotateY(30deg);
+      }
+      
+      .about-me-content {
+        left: initial;
+        top:initial;
+        transform: initial;
+        padding-right: 2em;
+        width:100vw;
+        box-sizing: border-box;
+        bottom:calc(var(--scroll-progress) * var(--laptop-speed) * -1 + var(--laptop-offset) + 5vh);
+      }
+
+      .photo-parallax {
+        border-radius: 0;
+        margin-top: min(calc(50vh - 70vw), 0px);
+      }
+    }
+
+    section.links {
       position: relative;
       width: 100vw;
       height: 100vh;
       overflow: hidden;
-      background-color: beige;
+      background-color: #000;
     }
   </style>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Anta&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Quicksand:wght@300&display=swap');
   </style>
 
 </head>
 
 <body>
-  <section class="logo">
-    <div class="words for_touch">
-      <div>What</div>
-      <div>will</div>
-      <div>your</div>
-      <div>heart?</div>
-    </div>
-    <div class="words for_zouk">
-      <div>What</div>
-      <div>will</div>
-      <div>you</div>
-      <div>to?</div>
-    </div>
+  <div class="perspective-container">
+    <section class="logo">
+      <div class="parallax-bg"></div>
+      <div class="subtitle">Music to touch the hearts</div>
 
-    <svg class="hand" width="400" viewBox="5 56 74 43" xmlns="http://www.w3.org/2000/svg">
-      <path class="hand_main_outline"
-        d="m 7.7549602,57.963355 c 11.5213388,0.09659 23.1410578,4.627131 30.6302498,7.199609 6.802453,2.336588 15.09316,5.006226 22.724516,5.94726 5.825179,0.718312 11.100889,0.300416 13.302461,-0.139572 1.937742,-0.387261 3.225845,0.230855 2.93857,1.151891 -0.457447,1.466628 -1.805849,2.906054 -6.11199,4.222959 -5.625424,1.720369 -12.038451,0.715384 -15.065017,0.706987 -3.246289,-0.009 -4.713119,1.99928 -8.03617,2.04669 -2.700654,0.03853 -5.555602,-0.379597 -6.251559,0.01809 -0.695958,0.39769 0.477446,1.843917 1.445158,2.77177 1.168736,1.120597 9.538033,5.176745 11.736859,6.889276 1.920975,1.496131 5.473002,4.468774 4.316355,6.605142 -0.545016,1.006665 -1.507615,1.050386 -2.475574,0.371498 C 56.268056,95.305552 41.969265,88.440585 37.388915,87.117256 32.978598,85.843052 28.827017,84.048405 26.001499,81.292507 22.9543,78.320391 19.386312,74.362935 14.878234,72.666868 10.635838,71.070759 7.9663729,71.170005 5.8759239,71.075073" />
-      <path class="hand_between"
-        d="m 53.464952,77.570502 c 0.979863,2.347708 2.337068,5.34868 1.792712,7.108701 -0.382392,1.236354 -1.844425,2.5306 -2.111205,2.826657" />
-      <path class="hand_between" d="m 47.968939,79.131348 c 0.457513,1.265741 1.086003,4.484317 0.771194,5.932753" />
-      <path class="hand_between" d="m 44.817761,79.03016 c 0.310312,1.239199 0.321448,3.050686 0.128176,3.910309" />
-      <path class="hand_finger_down"
-        d="m 48.368032,91.67429 c -1.476351,1.124839 -5.583918,4.65048 -6.081157,4.886015 -0.667871,0.31636 -1.383289,0.214711 -1.616954,-1.406049 -0.2311,-1.602968 2.095667,-4.464199 3.304211,-5.37813" />
-      <path class="hand_finger_down"
-        d="m 41.51355,88.651288 c -1.335746,0.667874 -4.931378,2.865007 -5.659342,3.304213 -0.472127,0.28485 -1.159987,-0.386663 -1.054535,-1.300595 0.105453,-0.913932 0.738175,-2.179373 2.530886,-3.51512" />
-    </svg>
-    <svg class="touch_logo" width="400" viewBox="30 39 80 27" xmlns="http://www.w3.org/2000/svg">
-      <path
-        d="m 33.260133,42.798217 19.675017,-0.04913 c 5.03102,0 9.208439,3.698481 9.208439,9.257215 0,5.358137 4.331732,9.174239 9.208087,9.174239 4.952438,0 9.208087,-4.149782 9.208087,-9.174239 0,-5.186419 4.103265,-9.208082 9.208085,-9.208082 l 7.951051,-6e-6"
-        class="letters_main" />
-      <path
-        d="m 62.143589,52.006301 c 0,5.311282 -4.184786,9.174242 -9.205674,9.174242 -4.913812,0 -9.182867,-3.990663 -9.182867,-9.174237 v -9.20809"
-        class="letters_to" />
-      <path d="M 43.755048,52.006306 V 62.485464" class="letters_t_bottom" />
-      <path d="m 80.559763,52.006304 c 0,5.823076 5.04093,9.174239 8.949894,9.174239 l 8.200454,0.03385"
-        class="letters_c_bottom" />
-      <path d="m 88.608925,52.006304 17.068755,-0.01693 V 41.497616" class="letters_h_top" />
-      <path d="M 105.67768,52.006304 V 62.481137" class="letters_h_bottom" />
-    </svg>
-    <svg class="zouk_logo" width="400" viewBox="58 86.5 80 27" xmlns="http://www.w3.org/2000/svg">
-      <path
-        d="m 61.194188,90.218124 18.633397,0 -16.392586,18.416176 h 26.326637 c 5.505401,0 9.208087,-4.29707 9.208087,-9.208091 0,-4.774827 -3.628743,-9.208085 -9.208087,-9.208085 -5.510652,0 -9.230691,4.402977 -9.230691,9.208085 v 1.239141"
-        class="letters_zo" />
-      <path
-        d="m 98.969723,99.426209 c 0,5.939421 4.809437,9.208091 9.208087,9.208091 5.48716,0 9.20809,-4.34366 9.20809,-9.208084 l 0,-10.450874"
-        class="letters_u" />
-      <path d="m 132.46673,89.870145 -11.31087,9.556064 11.3358,9.580921" class="letters_k_right" />
-      <g class="letters_k_endings">
-        <path d="m 131.68519,88.883772 3.90233,0.02487 -2.31157,1.988449 -1.27369,-0.601747 z"
-          class="letters_k_ending" />
-        <path d="m 131.61458,109.90922 3.90233,-0.0249 -2.31157,-1.98845 -1.27369,0.60175 z" class="letters_k_ending" />
-      </g>
-    </svg>
-  </section>
-  <section class="about_me">
-    some text about me
-  </section>
+      <svg class="hand" width="400" viewBox="5 56 74 43" xmlns="http://www.w3.org/2000/svg">
+        <path class="hand_main_outline"
+          d="m 7.7549602,57.963355 c 11.5213388,0.09659 23.1410578,4.627131 30.6302498,7.199609 6.802453,2.336588 15.09316,5.006226 22.724516,5.94726 5.825179,0.718312 11.100889,0.300416 13.302461,-0.139572 1.937742,-0.387261 3.225845,0.230855 2.93857,1.151891 -0.457447,1.466628 -1.805849,2.906054 -6.11199,4.222959 -5.625424,1.720369 -12.038451,0.715384 -15.065017,0.706987 -3.246289,-0.009 -4.713119,1.99928 -8.03617,2.04669 -2.700654,0.03853 -5.555602,-0.379597 -6.251559,0.01809 -0.695958,0.39769 0.477446,1.843917 1.445158,2.77177 1.168736,1.120597 9.538033,5.176745 11.736859,6.889276 1.920975,1.496131 5.473002,4.468774 4.316355,6.605142 -0.545016,1.006665 -1.507615,1.050386 -2.475574,0.371498 C 56.268056,95.305552 41.969265,88.440585 37.388915,87.117256 32.978598,85.843052 28.827017,84.048405 26.001499,81.292507 22.9543,78.320391 19.386312,74.362935 14.878234,72.666868 10.635838,71.070759 7.9663729,71.170005 5.8759239,71.075073" />
+        <path class="hand_between"
+          d="m 53.464952,77.570502 c 0.979863,2.347708 2.337068,5.34868 1.792712,7.108701 -0.382392,1.236354 -1.844425,2.5306 -2.111205,2.826657" />
+        <path class="hand_between" d="m 47.968939,79.131348 c 0.457513,1.265741 1.086003,4.484317 0.771194,5.932753" />
+        <path class="hand_between" d="m 44.817761,79.03016 c 0.310312,1.239199 0.321448,3.050686 0.128176,3.910309" />
+        <path class="hand_finger_down"
+          d="m 48.368032,91.67429 c -1.476351,1.124839 -5.583918,4.65048 -6.081157,4.886015 -0.667871,0.31636 -1.383289,0.214711 -1.616954,-1.406049 -0.2311,-1.602968 2.095667,-4.464199 3.304211,-5.37813" />
+        <path class="hand_finger_down"
+          d="m 41.51355,88.651288 c -1.335746,0.667874 -4.931378,2.865007 -5.659342,3.304213 -0.472127,0.28485 -1.159987,-0.386663 -1.054535,-1.300595 0.105453,-0.913932 0.738175,-2.179373 2.530886,-3.51512" />
+      </svg>
+      <svg class="touch_logo" width="400" viewBox="30 39 80 27" xmlns="http://www.w3.org/2000/svg">
+        <path
+          d="m 33.260133,42.798217 19.675017,-0.04913 c 5.03102,0 9.208439,3.698481 9.208439,9.257215 0,5.358137 4.331732,9.174239 9.208087,9.174239 4.952438,0 9.208087,-4.149782 9.208087,-9.174239 0,-5.186419 4.103265,-9.208082 9.208085,-9.208082 l 7.951051,-6e-6"
+          class="letters_main" />
+        <path
+          d="m 62.143589,52.006301 c 0,5.311282 -4.184786,9.174242 -9.205674,9.174242 -4.913812,0 -9.182867,-3.990663 -9.182867,-9.174237 v -9.20809"
+          class="letters_to" />
+        <path d="M 43.755048,52.006306 V 62.485464" class="letters_t_bottom" />
+        <path d="m 80.559763,52.006304 c 0,5.823076 5.04093,9.174239 8.949894,9.174239 l 8.200454,0.03385"
+          class="letters_c_bottom" />
+        <path d="m 88.608925,52.006304 17.068755,-0.01693 V 41.497616" class="letters_h_top" />
+        <path d="M 105.67768,52.006304 V 62.481137" class="letters_h_bottom" />
+      </svg>
+      <svg class="zouk_logo" width="400" viewBox="58 86.5 80 27" xmlns="http://www.w3.org/2000/svg">
+        <path
+          d="m 61.194188,90.218124 18.633397,0 -16.392586,18.416176 h 26.326637 c 5.505401,0 9.208087,-4.29707 9.208087,-9.208091 0,-4.774827 -3.628743,-9.208085 -9.208087,-9.208085 -5.510652,0 -9.230691,4.402977 -9.230691,9.208085 v 1.239141"
+          class="letters_zo" />
+        <path
+          d="m 98.969723,99.426209 c 0,5.939421 4.809437,9.208091 9.208087,9.208091 5.48716,0 9.20809,-4.34366 9.20809,-9.208084 l 0,-10.450874"
+          class="letters_u" />
+        <path d="m 132.46673,89.870145 -11.31087,9.556064 11.3358,9.580921" class="letters_k_right" />
+        <g class="letters_k_endings">
+          <path d="m 131.68519,88.883772 3.90233,0.02487 -2.31157,1.988449 -1.27369,-0.601747 z"
+            class="letters_k_ending" />
+          <path d="m 131.61458,109.90922 3.90233,-0.0249 -2.31157,-1.98845 -1.27369,0.60175 z"
+            class="letters_k_ending" />
+        </g>
+      </svg>
+    </section>
+    <section class="about_me">
+      <div class="photo-parallax">
+        <div class="bg"></div>
+        <div class="me-cut"></div>
+        <div class="parallax-laptop"></div>
+      </div>
+      <h1><span class="full">About Me</span></h1>
+      <div class="about-me-content">
+        <p>
+          Hi, I’m Daniel Drizhuk — <b>DJ Touchzouk</b>. I craft emotive Brazilian Zouk journeys where subtle
+          storytelling
+          meets precision groove. Based in Amsterdam, I blend modern Zouk, NeoZouk, R&B, silky pop edits, and tasteful
+          remixes into long-form arcs that breathe on the dance floor.
+        </p>
+        <p>
+          I started in 2010 as a song selector for local dance communities and, in 2016, completed DJing and
+          music-production courses with DJ Kakah and DJ Brixx. Since then I’ve played Zouk events across Brazil,
+          Mexico,
+          and Europe.
+        </p>
+        <p>
+          From 2018 to 2022 I hosted weekly parties in Moscow. Since 2019 I’ve been part of the Zouk Non Stop Marathon
+          core team, and during the pandemic I was one of the main DJs for IHZR. Since 2023 I’ve been based in
+          Amsterdam,
+          performing at both local and international events.
+        </p>
+      </div>
+    </section>
+    <section class="links">
+      ...
+    </section>
+  </div>
+  <script>
+    (function () {
+      const scrollContainer = document.querySelector('.perspective-container') || window;
+      function updateParallax() {
+        const scrolled = scrollContainer === window ? window.pageYOffset : scrollContainer.scrollTop;
+        scrollContainer.style.setProperty('--scroll', scrolled + 'px');
+      }
+
+      scrollContainer.addEventListener('scroll', updateParallax, { passive: true });
+      updateParallax();
+    })();
+  </script>
 </body>
 
 </html>
