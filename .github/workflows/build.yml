@@ -1,0 +1,43 @@
+name: Build and then dispatch event
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build_and_push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v1
+        with:
+          username: complynx
+          password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          push: true
+          tags: complynx/${{ github.event.repository.name }}:latest
+
+      - name: Check if we can dispatch the event
+        id: check_token
+        run: |
+          if [[ -z "${{ secrets.SERVER_REPO_TOKEN }}" ]]; then
+            echo "::set-output name=dispatch::false"
+          else
+            echo "::set-output name=dispatch::true"
+          fi
+
+      - name: Dispatch event to server
+        if: steps.check_token.outputs.dispatch == 'true'
+        uses: peter-evans/repository-dispatch@v1
+        with:
+          token: ${{ secrets.SERVER_REPO_TOKEN }}
+          repository: complynx/server_configs
+          event-type: updated-${{ github.event.repository.name }}
