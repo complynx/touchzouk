@@ -817,13 +817,13 @@
        x2="291.2"
        y1="0"
        y2="0"
-       gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#d0ba96" /><stop offset="0.48" stop-color="#e2cfac" /><stop offset="1" stop-color="#ae834b" /></linearGradient><linearGradient
+       gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#e8ddcb" /><stop offset="0.48" stop-color="#f1e7d6" /><stop offset="1" stop-color="#d7ae75" /></linearGradient><linearGradient
        id="dj-curve-gradient"
        x1="155.2"
        x2="192.5"
        y1="0"
        y2="0"
-       gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#d0ba96" /><stop offset="0.48" stop-color="#e2cfac" /><stop offset="1" stop-color="#ae834b" /></linearGradient></defs><g
+       gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#e8ddcb" /><stop offset="0.48" stop-color="#f1e7d6" /><stop offset="1" stop-color="#d7ae75" /></linearGradient></defs><g
      inkscape:label="Layer 1"
      inkscape:groupmode="layer"
      id="layer1"><g

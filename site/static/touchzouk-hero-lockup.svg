@@ -2,9 +2,9 @@
   <title id="title">DJ Touchzouk</title>
   <defs>
     <linearGradient id="lockup-gradient" x1="0" x2="512" y1="0" y2="0" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#d0ba96"/>
-      <stop offset=".48" stop-color="#e2cfac"/>
-      <stop offset="1" stop-color="#ae834b"/>
+      <stop offset="0" stop-color="#e8ddcb"/>
+      <stop offset=".48" stop-color="#f1e7d6"/>
+      <stop offset="1" stop-color="#d7ae75"/>
     </linearGradient>
     <mask id="lockup-mask" x="0" y="0" width="512" height="168" maskUnits="userSpaceOnUse" style="mask-type:alpha">
       <svg x="194" y="0" width="124" height="75" viewBox="60.5 67.7 37.3 22.5">

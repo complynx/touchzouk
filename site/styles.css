@@ -1,25 +1,25 @@
 :root {
-  --ink: #030812;
-  --panel: #030914;
-  --panel-rgb: 3 9 20;
-  --deep-navy-rgb: 2 7 15;
-  --gold: #b89158;
-  --gold-rgb: 184 145 88;
-  --gold-bright: #dec79d;
-  --gold-dim: #6f5738;
-  --cream: #dfcfaf;
-  --mist: #aaa08d;
+  --ink: #040b1c;
+  --panel: #040c1f;
+  --panel-rgb: 4 12 31;
+  --deep-navy-rgb: 2 9 23;
+  --gold: #dcc189;
+  --gold-rgb: 220 193 137;
+  --gold-bright: #efe3ce;
+  --gold-dim: #897457;
+  --cream: #efe7d7;
+  --mist: #d2d0c6;
   --line: rgb(var(--gold-rgb) / .52);
   --soft-rule: rgb(var(--gold-rgb) / .2);
   --frame-gradient: linear-gradient(115deg,
-    rgb(224 202 158 / .82) 0%,
+    rgb(240 229 207 / .82) 0%,
     rgb(var(--gold-rgb) / .26) 40%,
-    rgb(109 82 45 / .2) 62%,
-    rgb(203 161 93 / .68) 100%);
+    rgb(135 109 70 / .2) 62%,
+    rgb(229 208 145 / .68) 100%);
   --pill-frame-gradient: linear-gradient(110deg,
-    rgb(224 202 158 / .82),
+    rgb(240 229 207 / .82),
     rgb(var(--gold-rgb) / .24) 52%,
-    rgb(203 161 93 / .66));
+    rgb(229 208 145 / .66));
   --control-size: 2.75rem;
   --content-gutter: 3rem;
   --pill-radius: 999px;
@@ -42,7 +42,7 @@ body {
   overflow-x: hidden;
   color: var(--cream);
   background:
-    radial-gradient(circle at 48% 20%, rgb(23 46 75 / .28), transparent 42rem),
+    radial-gradient(circle at 48% 20%, rgb(29 61 116 / .28), transparent 42rem),
     var(--ink);
   font-family: var(--body);
   font-weight: 300;
@@ -62,17 +62,6 @@ body::before {
   background-size: 4px 4px, 7px 7px;
   mix-blend-mode: overlay;
 }
-body::after {
-  position: fixed;
-  inset: 0;
-  z-index: 101;
-  pointer-events: none;
-  content: "";
-  opacity: 1;
-  background: #52658680;
-  mix-blend-mode: color-dodge;
-}
-
 a { color: inherit; }
 img { display: block; max-width: 100%; }
 button, a { -webkit-tap-highlight-color: transparent; }
@@ -196,12 +185,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
   text-decoration: none;
 }
 :is(.social-nav a, .play-button, .celestial-button, .book-button, .about-copy .text-link) {
-  --control-hover-fill: radial-gradient(
-    var(--control-shine-shape, ellipse 42% 140%) at var(--shine-x, 50%) var(--shine-y, 50%),
-    rgb(255 251 235 / .38) 0%, rgb(255 245 215 / .16) 42%, transparent 72%),
-    linear-gradient(110deg,
-      color-mix(in srgb, var(--gold-bright) 80%, var(--panel)),
-      color-mix(in srgb, var(--cream) 80%, var(--panel)));
+  --control-hover-fill: radial-gradient( var(--control-shine-shape, ellipse 42% 140%) at var(--shine-x, 50%) var(--shine-y, 50%), rgba(255, 251, 235, 0.63) 0%, rgb(255 245 215 / .16) 42%, transparent 72%), linear-gradient(110deg, color-mix(in srgb, var(--gold-bright) 80%, var(--panel)), color-mix(in srgb, var(--cream) 80%, var(--panel)));
 }
 :is(.social-nav a, .play-button) { --control-shine-shape: circle 2.5rem; }
 .social-nav a,
@@ -255,7 +239,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
   position: absolute;
   inset: 0;
   z-index: -4;
-  background: url("static/celestial-hero.webp") center / cover no-repeat;
+  background: url("static/celestial-hero-baked.webp") center / cover no-repeat;
   filter: brightness(1.1) saturate(1.03);
 }
 
@@ -264,7 +248,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
   inset: 0;
   z-index: -3;
   background:
-    linear-gradient(180deg, rgb(var(--deep-navy-rgb) / .08) 0%, transparent 62%, rgb(5 11 22 / .66) 88%, var(--ink) 100%),
+    linear-gradient(180deg, rgb(var(--deep-navy-rgb) / .08) 0%, transparent 62%, rgb(6 15 34 / .66) 88%, var(--ink) 100%),
     radial-gradient(ellipse at 50% 42%, transparent 0 27%, rgb(var(--deep-navy-rgb) / .12) 62%, rgb(var(--deep-navy-rgb) / .42) 100%);
 }
 
@@ -298,7 +282,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
   inset: 0;
   pointer-events: none;
   content: "";
-  background: radial-gradient(circle 9rem at var(--shine-x, 50%) var(--shine-y, 50%), rgba(255, 253, 249, 0.9), rgb(214 180 114 / .24) 42%, transparent 72%);
+  background: radial-gradient(circle 9rem at var(--shine-x, 50%) var(--shine-y, 50%), rgba(255, 253, 249, 0.9), rgb(235 218 177 / .24) 42%, transparent 72%);
   opacity: var(--shine-visible, 0);
   mix-blend-mode: screen;
   transition: opacity 200ms ease-out;
@@ -346,9 +330,8 @@ button, a { -webkit-tap-highlight-color: transparent; }
   margin: 0 auto;
   padding: .62rem .8rem .62rem .62rem;
   border-radius: 1.25rem;
-  background: rgb(var(--panel-rgb) / .88);
+  background: rgb(var(--panel-rgb) / .68);
   box-shadow: 0 1.2rem 3.5rem rgb(0 0 0 / .38), inset 0 0 25px rgb(var(--gold-rgb) / .04);
-  backdrop-filter: blur(10px);
 }
 
 .player-shell::before,
@@ -557,7 +540,7 @@ footer {
   min-height: 7.6rem;
   overflow: hidden;
   border-radius: .8rem;
-  background-image: linear-gradient(100deg, rgb(var(--panel-rgb) / .95) 0 30%, rgb(var(--panel-rgb) / .42) 72%, rgb(var(--panel-rgb) / .22)), url("static/event-destinations.webp");
+  background-image: linear-gradient(100deg, rgb(var(--panel-rgb) / .95) 0 30%, rgb(var(--panel-rgb) / .42) 72%, rgb(var(--panel-rgb) / .22)), url("static/event-destinations-baked.webp");
   background-repeat: no-repeat;
   background-size: auto, 300% 100%;
 }
@@ -857,7 +840,7 @@ footer a { --link-base: var(--gold); text-decoration: none; }
     bottom: 0;
     width: 62%;
     content: "";
-    background-image: url("static/celestial-hero.webp");
+    background-image: url("static/celestial-hero-baked.webp");
     background-repeat: no-repeat;
     background-size: auto 100%;
   }

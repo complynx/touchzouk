@@ -2,9 +2,9 @@
   <title id="title">Touchzouk</title>
   <defs>
     <linearGradient id="gold-gradient" x1="0" x2="158" y1="0" y2="0" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#d0ba96"/>
-      <stop offset="0.48" stop-color="#e2cfac"/>
-      <stop offset="1" stop-color="#ae834b"/>
+      <stop offset="0" stop-color="#e8ddcb"/>
+      <stop offset="0.48" stop-color="#f1e7d6"/>
+      <stop offset="1" stop-color="#d7ae75"/>
     </linearGradient>
   </defs>
   <g fill="none" stroke="url(#gold-gradient)" stroke-width="2.565" stroke-linecap="butt" stroke-linejoin="miter" transform="translate(-30 -39)">
