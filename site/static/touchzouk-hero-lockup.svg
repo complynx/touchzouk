@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 168" role="img" aria-labelledby="title">
+  <title id="title">DJ Touchzouk</title>
+  <defs>
+    <linearGradient id="lockup-gradient" x1="0" x2="512" y1="0" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#d0ba96"/>
+      <stop offset=".48" stop-color="#e2cfac"/>
+      <stop offset="1" stop-color="#ae834b"/>
+    </linearGradient>
+    <mask id="lockup-mask" x="0" y="0" width="512" height="168" maskUnits="userSpaceOnUse" style="mask-type:alpha">
+      <svg x="194" y="0" width="124" height="75" viewBox="60.5 67.7 37.3 22.5">
+        <g transform="translate(-94.69965 103.08247)">
+          <g transform="translate(112.8554 -96.940058)">
+            <g transform="matrix(.26171238 0 0 .26171238 -.77148944 -9.976624)">
+              <g transform="translate(16.100696 41.593463)">
+                <path d="M156.46616 274.91513V239.73112l27.68084-.18772c19.76036 0 35.18533 15.61137 35.18534 35.37172 0 19.63103-15.42364 35.05466-35.17477 35.05466h-27.69141l-.0184-35.05466m127.20729-19.14274V239.5434" fill="none" stroke="#fff" stroke-width="9.93457" stroke-linecap="square"/>
+              </g>
+            </g>
+          </g>
+          <path d="M173.69965-24.082467c-.00001 5.171533 3.29162 9.208077 8.41702 9.208085 5.21206 0 8.41703-4.041263 8.41703-9.208085v-5.755056" fill="none" stroke="#fff" stroke-width="2.6"/>
+        </g>
+      </svg>
+      <svg x="0" y="81" width="512" height="87" viewBox="0 0 158 27">
+        <g fill="none" stroke="#fff" stroke-width="2.565" stroke-linecap="butt" stroke-linejoin="miter" transform="translate(-30 -39)">
+          <path d="m33.260133 42.798217 19.675017-.04913c5.03102 0 9.208439 3.698481 9.208439 9.257215 0 5.358137 4.331732 9.174239 9.208087 9.174239 4.952438 0 9.208087-4.149782 9.208087-9.174239 0-5.186419 4.103265-9.208082 9.208085-9.208082l7.951051-.000006"/>
+          <path d="M62.143589 52.006301c0 5.311282-4.184786 9.174242-9.205674 9.174242-4.913812 0-9.182867-3.990663-9.182867-9.174237v-9.20809"/>
+          <path d="M43.755048 52.006306V62.485464"/>
+          <path d="M80.559763 52.006304c0 5.823076 5.04093 9.174239 8.949894 9.174239l8.200454.03385"/>
+          <path d="m88.608925 52.006304 17.068755-.01693V41.497616"/>
+          <path d="M105.67768 52.006304V62.481137"/>
+        </g>
+        <g fill="none" stroke="#fff" stroke-width="2.565" stroke-linecap="butt" stroke-linejoin="miter" transform="translate(20 -86.419907)">
+          <path d="M61.194188 90.218124h18.633397L63.434999 108.6343h26.326637c5.505401 0 9.208087-4.29707 9.208087-9.208091 0-4.774827-3.628743-9.208085-9.208087-9.208085-5.510652 0-9.230691 4.402977-9.230691 9.208085v1.239141"/>
+          <path d="M98.969723 99.426209c0 5.939421 4.809437 9.208091 9.208087 9.208091 5.48716 0 9.20809-4.34366 9.20809-9.208084V88.975342"/>
+          <path d="m132.46673 89.870145-11.31087 9.556064 11.3358 9.580921"/>
+          <g fill="#fff" stroke="none">
+            <path d="m131.68519 88.883772 3.90233.02487-2.31157 1.988449-1.27369-.601747z"/>
+            <path d="m131.61458 109.90922 3.90233-.0249-2.31157-1.98845-1.27369.60175z"/>
+          </g>
+        </g>
+      </svg>
+    </mask>
+  </defs>
+  <rect width="512" height="168" fill="url(#lockup-gradient)" mask="url(#lockup-mask)"/>
+</svg>
