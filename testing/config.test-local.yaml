@@ -1,0 +1,23 @@
+server:
+  address: ":8080"
+  public_url: "http://touchzouk.localhost"
+
+data_dir: "/data"
+site_dir: "/app/site"
+
+database:
+  driver: "sqlite"
+  dsn: "/data/touchzouk.db"
+
+media:
+  ffmpeg_path: "ffmpeg"
+  ffprobe_path: "ffprobe"
+  max_upload_mb: 1024
+  waveform_points: 1024
+
+auth:
+  mode: "stub"
+  stub_allow_remote: true
+  session_secret: "local-compose-only-change-me"
+  stub_user: "Local administrator"
+  secure_cookies: false

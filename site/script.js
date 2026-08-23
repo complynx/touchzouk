@@ -4,46 +4,30 @@ const waveform = document.querySelector("[data-waveform]");
 const seek = document.querySelector("[data-seek]");
 const currentTime = document.querySelector("[data-current]");
 const duration = document.querySelector("[data-duration]");
+const volume = document.querySelector("[data-featured-volume]");
 const menuButton = document.querySelector(".menu-toggle");
 const menu = document.querySelector(".site-nav");
 const menuLabel = menuButton.querySelector(".sr-only");
+let featuredTitle = "featured set";
+let playRequested = false;
+let startingPlayback = false;
+let playIntent = 0;
+let waveformSource = [];
+let hoverWaveformRatio = null;
+let waveformPaintFrame = 0;
 
-const shineTargets = document.querySelectorAll(
+const setVolume = (value) => {
+  audio.volume = Number(value);
+  volume.value = value;
+  volume.style.setProperty("--volume-percent", `${Math.round(Number(value) * 100)}%`);
+  volume.setAttribute("aria-valuetext", `${Math.round(Number(value) * 100)} percent`);
+};
+setVolume(volume.value);
+volume.addEventListener("input", () => setVolume(volume.value));
+
+TouchzoukUI.bindPointerShine(document.querySelectorAll(
   ".site-nav a, .social-nav a, .hero-logo, .play-button, .celestial-button, .book-button, .about-copy .text-link, .event-body a, .contact-details a, footer a",
-);
-const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
-
-shineTargets.forEach((target) => {
-  const clearShine = () => {
-    if (target.classList.contains("hero-logo")) {
-      target.style.setProperty("--shine-visible", "0");
-      return;
-    }
-
-    target.style.removeProperty("--shine-x");
-    target.style.removeProperty("--shine-y");
-    target.style.removeProperty("--shine-visible");
-  };
-
-  const moveShine = (event) => {
-    if (prefersReducedMotion.matches || !["mouse", "pen"].includes(event.pointerType)) return;
-
-    const bounds = target.getBoundingClientRect();
-    target.style.setProperty("--shine-x", `${event.clientX - bounds.left}px`);
-    target.style.setProperty("--shine-y", `${event.clientY - bounds.top}px`);
-    target.style.setProperty("--shine-visible", "1");
-  };
-
-  target.addEventListener("pointerenter", moveShine);
-  target.addEventListener("pointermove", moveShine);
-  target.addEventListener("pointerleave", clearShine);
-  target.addEventListener("focus", () => {
-    target.style.setProperty("--shine-x", "50%");
-    target.style.setProperty("--shine-y", "50%");
-    target.style.setProperty("--shine-visible", "1");
-  });
-  target.addEventListener("blur", clearShine);
-});
+));
 
 const formatTime = (seconds) => {
   if (!Number.isFinite(seconds)) return "—:—";
@@ -54,17 +38,81 @@ const formatTime = (seconds) => {
   return hours ? `${hours}:${clock}` : clock;
 };
 
-const bars = Array.from({ length: 58 }, (_, index) => {
-  const bar = document.createElement("i");
-  const wave = Math.abs(Math.sin(index * 0.73) * Math.cos(index * 0.19));
-  bar.style.setProperty("--bar-height", `${25 + wave * 75}%`);
-  waveform.append(bar);
-  return bar;
-});
+let bars = [];
+const paintWaveform = () => {
+  const progress = audio.duration ? audio.currentTime / audio.duration : 0;
+  const hoverIndex = hoverWaveformRatio == null ? -10 : Math.min(bars.length - 1, Math.floor(hoverWaveformRatio * bars.length));
+  bars.forEach((bar, index) => {
+    const played = progress > 0 && (index + .5) / bars.length <= progress;
+    const hover = TouchzoukUI.waveformHoverStyle(Math.abs(index - hoverIndex), played);
+    bar.classList.toggle("played", played);
+    bar.classList.toggle("is-hovered", Boolean(hover));
+    if (!hover) return;
+    bar.style.setProperty("--hover-scale", hover.scale);
+    bar.style.setProperty("--hover-fill", hover.fill);
+    bar.style.setProperty("--hover-shadow", hover.shadow);
+    bar.style.setProperty("--hover-blur", `${hover.blur}px`);
+  });
+};
+
+const requestWaveformPaint = () => {
+  if (waveformPaintFrame) return;
+  waveformPaintFrame = requestAnimationFrame(() => {
+    waveformPaintFrame = 0;
+    paintWaveform();
+  });
+};
+
+const renderWaveform = (source = waveformSource) => {
+  waveformSource = source;
+  const availableWidth = waveform.getBoundingClientRect().width;
+  const target = Math.max(18, Math.min(58, Math.floor((availableWidth || 260) / 4.5)));
+  const fallback = Array.from({ length: 180 }, (_, index) => Math.abs(Math.sin(index * .73) * Math.cos(index * .19)));
+  const points = TouchzoukUI.rebinWaveform(source.length ? source : fallback, target);
+  waveform.replaceChildren();
+  bars = points.map((point) => {
+    const bar = document.createElement("i");
+    bar.style.setProperty("--bar-height", `${25 + point * 75}%`);
+    waveform.append(bar);
+    return bar;
+  });
+  paintWaveform();
+};
+renderWaveform();
+
+const loadFeatured = async () => {
+  try {
+    const response = await fetch("/api/featured");
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const item = await response.json();
+    featuredTitle = item.title;
+    audio.src = item.audio_url;
+    const cover = document.querySelector("[data-featured-cover]");
+    cover.src = item.cover_url;
+    cover.alt = `${item.title} cover`;
+    TouchzoukUI.applyCoverCrop(cover, item);
+    document.querySelector("[data-featured-title]").textContent = item.title;
+    document.querySelector("[data-featured-kicker]").textContent = item.event_name ? `Featured set · ${item.event_name}` : "Featured set";
+    document.querySelector("[data-featured-subtitle]").textContent = item.subtitle || item.played_at || "Sound Atlas";
+    playButton.setAttribute("aria-label", `Play ${item.title}`);
+    seek.setAttribute("aria-label", `Seek through ${item.title}`);
+    try {
+      const waveResponse = await fetch(item.waveform_url, { cache: "no-cache" });
+      if (waveResponse.ok) renderWaveform((await waveResponse.json()).points || []);
+    } catch (error) {
+      console.error("Could not load featured waveform", error);
+    }
+  } catch (error) {
+    document.querySelector("[data-featured-title]").textContent = "No featured set";
+    document.querySelector("[data-featured-subtitle]").textContent = "Open Sound Atlas to explore the catalog";
+    playButton.disabled = true;
+    console.error(error);
+  }
+};
 
 const paintProgress = () => {
   const progress = audio.duration ? audio.currentTime / audio.duration : 0;
-  bars.forEach((bar, index) => bar.classList.toggle("played", index / bars.length <= progress));
+  paintWaveform();
   currentTime.textContent = formatTime(audio.currentTime);
   seek.value = String(Math.round(progress * 1000));
   seek.setAttribute("aria-valuetext", `${formatTime(audio.currentTime)} of ${formatTime(audio.duration)}`);
@@ -83,30 +131,73 @@ audio.addEventListener("loadedmetadata", () => {
 
 audio.addEventListener("timeupdate", paintProgress);
 audio.addEventListener("ended", () => {
-  playButton.classList.remove("is-playing");
-  playButton.setAttribute("aria-label", "Play Crystal Fortress");
+  playRequested = false;
+  updatePlayState();
 });
 
-playButton.addEventListener("click", async () => {
-  if (audio.paused) {
-    try {
-      await audio.play();
-      playButton.classList.add("is-playing");
-      playButton.setAttribute("aria-label", "Pause Crystal Fortress");
-    } catch {
-      playButton.classList.remove("is-playing");
-      playButton.setAttribute("aria-label", "Crystal Fortress is unavailable");
+function updatePlayState(unavailable = false) {
+  playButton.classList.toggle("is-playing", playRequested);
+  playButton.setAttribute("aria-label", unavailable ? `${featuredTitle} is unavailable` : `${playRequested ? "Pause" : "Play"} ${featuredTitle}`);
+}
+
+async function requestPlay() {
+  const intent = ++playIntent;
+  playRequested = true;
+  startingPlayback = true;
+  updatePlayState();
+  try {
+    await audio.play();
+    if (intent !== playIntent) {
+      if (!playRequested) audio.pause();
+      return;
     }
-  } else {
-    audio.pause();
-    playButton.classList.remove("is-playing");
-    playButton.setAttribute("aria-label", "Play Crystal Fortress");
+    startingPlayback = false;
+    if (!playRequested) audio.pause();
+  } catch {
+    if (intent !== playIntent) return;
+    startingPlayback = false;
+    if (!playRequested) return;
+    playRequested = false;
+    updatePlayState(true);
   }
+}
+
+function requestPause() {
+  playIntent += 1;
+  startingPlayback = false;
+  playRequested = false;
+  audio.pause();
+  updatePlayState();
+}
+
+playButton.addEventListener("click", () => {
+  if (playRequested) requestPause();
+  else void requestPlay();
 });
 
-seek.addEventListener("input", () => {
+audio.addEventListener("play", () => {
+  if (!playRequested) {
+    audio.pause();
+    return;
+  }
+  updatePlayState();
+});
+audio.addEventListener("pause", () => { if (!startingPlayback) playRequested = false; updatePlayState(); });
+
+TouchzoukUI.bindSeeker({ input: seek, surface: waveform, onSeek: (progress) => {
   if (!audio.duration) return;
-  audio.currentTime = (Number(seek.value) / 1000) * audio.duration;
+  seek.value = String(Math.round(progress * 1000));
+  audio.currentTime = progress * audio.duration;
+  requestWaveformPaint();
+} });
+
+seek.parentElement.addEventListener("pointermove", (event) => {
+  hoverWaveformRatio = TouchzoukUI.pointerRatio(event, waveform);
+  requestWaveformPaint();
+});
+seek.parentElement.addEventListener("pointerleave", () => {
+  hoverWaveformRatio = null;
+  requestWaveformPaint();
 });
 
 menuButton.addEventListener("click", () => {
@@ -124,3 +215,7 @@ document.addEventListener("keydown", (event) => {
   setMenuOpen(false);
   menuButton.focus();
 });
+
+window.addEventListener("resize", () => renderWaveform());
+
+loadFeatured();

@@ -1,0 +1,10 @@
+services:
+  touchzouk:
+    volumes:
+      - ../testing/config.test-local.yaml:/app/config.yaml:ro
+      - touchzouk-test-data:/data
+    labels:
+      - traefik.http.routers.touchzouk.rule=HostRegexp(`^(touchzouk)\.localhost$`) && PathPrefix(`/`)
+
+volumes:
+  touchzouk-test-data:

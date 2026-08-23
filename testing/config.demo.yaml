@@ -1,0 +1,23 @@
+server:
+  address: ":8080"
+  public_url: "http://127.0.0.1:8000"
+
+data_dir: "/data"
+site_dir: "/app/site"
+
+database:
+  driver: "sqlite"
+  dsn: "/data/touchzouk.db"
+
+media:
+  ffmpeg_path: "ffmpeg"
+  ffprobe_path: "ffprobe"
+  max_upload_mb: 1024
+  waveform_points: 1024
+
+auth:
+  mode: "stub"
+  stub_allow_remote: true
+  session_secret: "local-demo-only-change-me-now"
+  stub_user: "Local administrator"
+  secure_cookies: false

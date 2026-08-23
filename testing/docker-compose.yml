@@ -1,0 +1,22 @@
+services:
+  touchzouk-demo:
+    build:
+      context: ..
+      dockerfile: testing/Dockerfile
+    image: touchzouk:demo-v2
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["touchzouk-seed -config /app/config.yaml && exec touchzouk -config /app/config.yaml"]
+    ports:
+      - "127.0.0.1:8000:8080"
+    volumes:
+      - ./config.demo.yaml:/app/config.yaml:ro
+      - touchzouk-demo-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8080/healthz"]
+      interval: 5s
+      timeout: 2s
+      retries: 12
+    restart: unless-stopped
+
+volumes:
+  touchzouk-demo-data:

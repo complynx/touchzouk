@@ -1,0 +1,176 @@
+version: "2"
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+linters:
+  default: none
+  enable:
+    - asasalint
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - canonicalheader
+    - copyloopvar
+    - cyclop
+    - depguard
+    - dupl
+    - durationcheck
+    - errcheck
+    - errname
+    - errorlint
+    - exhaustive
+    - exptostd
+    - fatcontext
+    - funcorder
+    - funlen
+    - gocheckcompilerdirectives
+    - gochecknoglobals
+    - gochecknoinits
+    - gochecksumtype
+    - gocognit
+    - goconst
+    - gocritic
+    - gocyclo
+    - gomoddirectives
+    - goprintffuncname
+    - gosec
+    - govet
+    - ineffassign
+    - intrange
+    - iface
+    - iotamixing
+    - lll
+    - makezero
+    - mirror
+    - misspell
+    - modernize
+    - musttag
+    - nestif
+    - nilerr
+    - nilnesserr
+    - nilnil
+    - noctx
+    - nolintlint
+    - nosprintfhostport
+    - perfsprint
+    - predeclared
+    - recvcheck
+    - reassign
+    - revive
+    - rowserrcheck
+    - sqlclosecheck
+    - staticcheck
+    - testifylint
+    - thelper
+    - tparallel
+    - unconvert
+    - unparam
+    - unused
+    - usestdlibvars
+    - usetesting
+    - wastedassign
+    - whitespace
+  settings:
+    cyclop:
+      max-complexity: 20
+      package-average: 10
+    depguard:
+      rules:
+        deprecated:
+          files:
+            - $all
+          deny:
+            - pkg: github.com/pkg/errors
+              desc: Use the standard library errors package.
+            - pkg: gopkg.in/yaml.v3
+              desc: Use the maintained go.yaml.in/yaml/v3 module for direct YAML imports.
+        structured-logging:
+          files:
+            - '!**/main.go'
+          deny:
+            - pkg: log$
+              desc: Use log/slog outside command entrypoints.
+    errcheck:
+      check-type-assertions: true
+    exhaustive:
+      check:
+        - switch
+        - map
+    funlen:
+      lines: 100
+      statements: 50
+    funcorder:
+      struct-method: false
+    gocognit:
+      min-complexity: 20
+    goconst:
+      ignore-string-values:
+        - ^error$
+        - ^https$
+        - ^\.(jpeg|png)$
+        - ^invalid request origin$
+        - ^kind must be set or song$
+        - ^media item not found$
+        - ^could not load media item$
+    gocyclo:
+      min-complexity: 20
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment
+      settings:
+        shadow:
+          strict: false
+    lll:
+      line-length: 120
+      tab-width: 4
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+    reassign:
+      patterns:
+        - .*
+    staticcheck:
+      checks:
+        - all
+        - -ST1000
+        - -ST1016
+        - -QF1008
+    usetesting:
+      os-temp-dir: true
+  exclusions:
+    warn-unused: true
+    presets:
+      - common-false-positives
+    rules:
+      # golangci-lint 2.13.1 suggests Go 1.27's shortened embedded-field
+      # literals, but its bundled type checker cannot parse them yet.
+      - path: testing/seed/main\.go
+        text: embedded field type can be removed
+        linters:
+          - modernize
+      - path: _test\.go
+        linters:
+          - goconst
+          - gosec
+      - text: should have a package comment
+        linters:
+          - revive
+      - text: exported .+ should have comment or be unexported
+        linters:
+          - revive
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    gofumpt:
+      module-path: github.com/complynx/touchzouk
+      extra:
+        group-params: true
+    goimports:
+      local-prefixes:
+        - github.com/complynx/touchzouk
