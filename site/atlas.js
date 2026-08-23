@@ -7,6 +7,8 @@ const state = {
   playRequested: false,
   startingPlayback: false,
   playIntent: 0,
+  seeking: false,
+  seekWasPlaying: false,
   waveformRequest: null,
   rebinned: new Map(),
   hoverWaveformRatio: null,
@@ -878,12 +880,26 @@ waveCanvas.addEventListener("pointerleave", () => {
   state.hoverWaveformRatio = null;
   requestWaveformDraw();
 });
-TouchzoukUI.bindSeeker({ input: seek, surface: waveCanvas, onSeek: (progress) => {
-  if (!audio.duration) return;
-  seek.value = String(Math.round(progress * 1000));
-  audio.currentTime = progress * audio.duration;
-  requestWaveformDraw();
-} });
+TouchzoukUI.bindSeeker({
+  input: seek,
+  surface: waveCanvas,
+  onSeekStart: () => {
+    state.seekWasPlaying = state.playRequested;
+    state.seeking = true;
+  },
+  onSeek: (progress) => {
+    if (!audio.duration) return;
+    seek.value = String(Math.round(progress * 1000));
+    audio.currentTime = progress * audio.duration;
+    paintProgress();
+    if (state.seekWasPlaying && audio.paused && !state.startingPlayback) void play();
+  },
+  onSeekEnd: () => {
+    if (state.seekWasPlaying) void play();
+    state.seekWasPlaying = false;
+    state.seeking = false;
+  },
+});
 audio.addEventListener("play", () => {
   if (!state.playRequested) {
     audio.pause();
@@ -892,17 +908,18 @@ audio.addEventListener("play", () => {
   updatePlayState();
 });
 audio.addEventListener("pause", () => {
-  if (!state.startingPlayback) state.playRequested = false;
+  if (!state.startingPlayback && !state.seeking) state.playRequested = false;
   updatePlayState();
 });
-audio.addEventListener("timeupdate", () => {
+function paintProgress() {
   seek.value = audio.duration ? String(Math.round(audio.currentTime / audio.duration * 1000)) : "0";
   const current = formatDuration(audio.currentTime);
   const duration = formatDuration(audio.duration);
   setText("[data-current]", current);
   seek.setAttribute("aria-valuetext", `${current} of ${duration}`);
   requestWaveformDraw();
-});
+}
+audio.addEventListener("timeupdate", paintProgress);
 audio.addEventListener("loadedmetadata", () => { setText("[data-duration]", formatDuration(audio.duration)); drawWaveform(); });
 audio.addEventListener("ended", () => {
   if (state.repeat === 2) { audio.currentTime = 0; play(); return; }

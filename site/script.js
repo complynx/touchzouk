@@ -12,6 +12,8 @@ let featuredTitle = "featured set";
 let playRequested = false;
 let startingPlayback = false;
 let playIntent = 0;
+let seeking = false;
+let seekWasPlaying = false;
 let waveformSource = [];
 let hoverWaveformRatio = null;
 let waveformPaintFrame = 0;
@@ -182,14 +184,28 @@ audio.addEventListener("play", () => {
   }
   updatePlayState();
 });
-audio.addEventListener("pause", () => { if (!startingPlayback) playRequested = false; updatePlayState(); });
+audio.addEventListener("pause", () => { if (!startingPlayback && !seeking) playRequested = false; updatePlayState(); });
 
-TouchzoukUI.bindSeeker({ input: seek, surface: waveform, onSeek: (progress) => {
-  if (!audio.duration) return;
-  seek.value = String(Math.round(progress * 1000));
-  audio.currentTime = progress * audio.duration;
-  requestWaveformPaint();
-} });
+TouchzoukUI.bindSeeker({
+  input: seek,
+  surface: waveform,
+  onSeekStart: () => {
+    seekWasPlaying = playRequested;
+    seeking = true;
+  },
+  onSeek: (progress) => {
+    if (!audio.duration) return;
+    seek.value = String(Math.round(progress * 1000));
+    audio.currentTime = progress * audio.duration;
+    paintProgress();
+    if (seekWasPlaying && audio.paused && !startingPlayback) void requestPlay();
+  },
+  onSeekEnd: () => {
+    if (seekWasPlaying) void requestPlay();
+    seekWasPlaying = false;
+    seeking = false;
+  },
+});
 
 seek.parentElement.addEventListener("pointermove", (event) => {
   hoverWaveformRatio = TouchzoukUI.pointerRatio(event, waveform);

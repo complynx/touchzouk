@@ -74,18 +74,31 @@
     };
   }
 
-  function bindSeeker({ input, surface, onSeek }) {
-    let pointerSeeking = false;
+  function bindSeeker({ input, surface, onSeek, onSeekStart, onSeekEnd }) {
+    let activePointerId = null;
     const seekFromPointer = (event) => onSeek(pointerRatio(event, surface));
     input.addEventListener("pointerdown", (event) => {
-      pointerSeeking = true;
+      if (activePointerId !== null) return;
+      activePointerId = event.pointerId;
+      onSeekStart?.();
       input.setPointerCapture(event.pointerId);
       seekFromPointer(event);
     });
-    input.addEventListener("pointermove", (event) => { if (pointerSeeking) seekFromPointer(event); });
-    input.addEventListener("pointerup", (event) => { seekFromPointer(event); pointerSeeking = false; });
-    input.addEventListener("pointercancel", () => { pointerSeeking = false; });
-    input.addEventListener("input", () => { if (!pointerSeeking) onSeek(Number(input.value) / 1000); });
+    input.addEventListener("pointermove", (event) => {
+      if (event.pointerId === activePointerId) seekFromPointer(event);
+    });
+    input.addEventListener("pointerup", (event) => {
+      if (event.pointerId !== activePointerId) return;
+      seekFromPointer(event);
+      activePointerId = null;
+      onSeekEnd?.();
+    });
+    input.addEventListener("pointercancel", (event) => {
+      if (event.pointerId !== activePointerId) return;
+      activePointerId = null;
+      onSeekEnd?.();
+    });
+    input.addEventListener("input", () => { if (activePointerId === null) onSeek(Number(input.value) / 1000); });
   }
 
   window.TouchzoukUI = { applyCoverCrop, bindPointerShine, bindSeeker, coverValues, pointerRatio, rebinWaveform, waveformHoverStyle };
