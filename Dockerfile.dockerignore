@@ -1,4 +1,4 @@
-# Exclude VCS and editor files
+# Production builds must not send test fixtures or seed tooling to BuildKit.
 .git
 .gitignore
 *.swp
@@ -11,3 +11,4 @@ additional.local
 *.db
 .gocache
 .gomodcache
+testing

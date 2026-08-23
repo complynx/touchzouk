@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#050b16">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Atlas Admin · DJ Touchzouk</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600&amp;family=Manrope:wght@300;400;500;600&amp;display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css?v=14">
+  <link rel="stylesheet" href="admin.css?v=18">
+</head>
+<body class="admin-body">
+  <a class="skip-link" href="#media-form">Skip to media form</a>
+  <header class="admin-topbar">
+    <a class="brand" href="/"><img src="static/touchzouk-wordmark.svg" width="158" height="27" alt="DJ Touchzouk"></a>
+    <nav><a href="/listen">Sound Atlas <span aria-hidden="true">↗</span></a></nav>
+    <form method="post" action="/auth/logout"><button class="quiet-button" type="submit">Sign out</button></form>
+  </header>
+
+  <main id="admin-main" class="admin-main">
+    <header class="admin-heading">
+      <div><h1>Atlas admin</h1><p>Signed in as <strong data-admin-name>administrator</strong></p></div>
+      <span class="admin-status"><i></i> Ready</span>
+    </header>
+
+    <div class="admin-workspace">
+      <section class="admin-editor" aria-labelledby="editor-title">
+        <header class="editor-heading"><div><h2 id="editor-title">New media</h2><p data-editor-context>Audio and cover uploads begin immediately.</p></div><button class="quiet-button" data-cancel-edit type="button" hidden>Cancel edit</button></header>
+
+        <form id="media-form" novalidate>
+          <fieldset class="kind-picker">
+            <legend>Type</legend>
+            <label><input type="radio" name="kind" value="set" checked><span>Set</span></label>
+            <label><input type="radio" name="kind" value="song"><span>Song</span></label>
+            <small data-kind-hint>Guessed from duration; 12:00 and longer is a set.</small>
+          </fieldset>
+
+          <div class="upload-grid">
+            <div class="asset-upload audio-upload">
+              <label class="file-drop" data-file-drop="audio">
+                <input type="file" name="audio" accept=".opus,.ogg,.flac,audio/ogg,audio/flac">
+                <strong>Audio</strong><span>Drop or choose Opus, OGG, or FLAC</span>
+              </label>
+              <div class="asset-ready" data-audio-ready hidden><strong data-audio-name>Audio ready</strong><span data-audio-detail></span><canvas class="upload-waveform" data-upload-waveform height="52" aria-label="Analyzed waveform preview" hidden></canvas></div>
+              <div class="asset-status" data-audio-status role="status" aria-live="polite"></div>
+              <div class="asset-progress" data-audio-progress role="progressbar" aria-label="Audio upload" hidden><i></i></div>
+            </div>
+
+            <div class="asset-upload cover-upload">
+              <input data-cover-input type="file" name="cover" accept=".jpg,.jpeg,.png,.webp,.avif,image/jpeg,image/png,image/webp,image/avif" hidden>
+              <button class="file-drop cover-drop" data-file-drop="cover" type="button" aria-label="Choose a cover, or drop one here">
+                <img data-cover-preview alt="" hidden>
+                <strong>Cover</strong><span class="cover-instruction">Drop or choose JPG, PNG, WEBP, or AVIF</span>
+              </button>
+              <div class="cover-tools" data-cover-tools hidden>
+                <button class="quiet-button" data-change-cover type="button">Change cover</button>
+                <span>Drag or use arrows to reposition · scroll, pinch, + or − to zoom</span>
+              </div>
+              <div class="asset-status" data-cover-status role="status" aria-live="polite"></div>
+              <div class="asset-progress" data-cover-progress role="progressbar" aria-label="Cover upload" hidden><i></i></div>
+            </div>
+          </div>
+
+          <fieldset class="metadata-fields">
+            <legend>Details</legend>
+            <label class="field field-wide"><span>Title</span><input name="title" maxlength="180" required placeholder="Filled from the audio tag"></label>
+            <label class="field field-wide"><span>Subtitle</span><input name="subtitle" maxlength="240"></label>
+            <label class="field"><span>Date / time</span><input name="played_at" maxlength="80" placeholder="18 Jul 2026 · after midnight"></label>
+            <label class="field"><span>Telegram post</span><input name="telegram_url" type="text" inputmode="url" placeholder="Post number or t.me link"></label>
+            <div class="field field-wide"><label for="media-tags">Tags</label><input id="media-tags" name="tags" maxlength="110" placeholder="deep, melodic, late night"><small>Up to three, comma-separated.</small><div class="tag-suggestions" data-tag-suggestions role="group" aria-label="Popular tags"></div></div>
+          </fieldset>
+
+          <fieldset class="metadata-fields set-fields" data-set-fields>
+            <legend>Set details</legend>
+            <label class="field"><span>Event</span><input name="event_name" maxlength="180"></label>
+            <label class="field"><span>Event link</span><input name="event_url" type="url" placeholder="https://…"></label>
+            <label class="field"><span>Country</span><input name="country" maxlength="100"></label>
+            <label class="field"><span>City</span><input name="city" maxlength="100"></label>
+          </fieldset>
+
+          <div class="form-message" data-form-message role="status" aria-live="polite"></div>
+          <button class="primary-action" type="submit" data-submit-media>Publish media</button>
+        </form>
+      </section>
+
+      <aside class="admin-library" aria-labelledby="library-title">
+        <header class="library-heading"><div><h2 id="library-title">Published media</h2><p>Choose an item to edit or rebuild its waveform.</p></div></header>
+        <div class="library-tabs" aria-label="Filter published media">
+          <button type="button" data-library-tab="set" aria-pressed="true">Sets <span data-admin-count="set">0</span></button>
+          <button type="button" data-library-tab="song" aria-pressed="false">Songs <span data-admin-count="song">0</span></button>
+        </div>
+        <p class="song-order-hint" data-song-order-hint hidden>Drag songs into their public order.</p>
+        <div data-admin-library><div class="admin-empty">Loading…</div></div>
+      </aside>
+    </div>
+  </main>
+
+  <dialog class="confirm-dialog" data-delete-dialog aria-labelledby="delete-title">
+    <form method="dialog"><h2 id="delete-title">Delete this track?</h2><p data-delete-copy>This removes its audio, cover, waveform, and metadata.</p><div><button class="quiet-button" value="no">No</button><button class="danger-button" value="yes">Yes, delete</button></div></form>
+  </dialog>
+
+  <template id="admin-media-template">
+    <article class="admin-media-row">
+      <span class="drag-handle" aria-hidden="true">⋮⋮</span>
+      <div class="admin-row-cover media-artwork"><img src="" alt=""></div>
+      <div class="track-copy"><span class="admin-kind"></span><strong></strong><small class="admin-duration"></small><small class="admin-row-status" role="status" aria-live="polite"></small></div>
+      <div class="admin-row-actions"><button class="quiet-button edit-media" type="button">Edit</button><button class="quiet-button pin-media" type="button">Pin</button><button class="quiet-button regenerate" type="button">Rebuild wave</button><button class="quiet-button delete-media" type="button">Delete</button></div>
+    </article>
+  </template>
+
+  <script src="shared-ui.js?v=3"></script>
+  <script src="admin.js?v=29"></script>
+</body>
+</html>

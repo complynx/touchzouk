@@ -6,20 +6,24 @@ on:
       - main
 
 jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
   build_and_push:
+    needs: ci
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v7
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v1
+        uses: docker/login-action@v4
         with:
           username: complynx
           password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v2
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true
@@ -29,14 +33,14 @@ jobs:
         id: check_token
         run: |
           if [[ -z "${{ secrets.SERVER_REPO_TOKEN }}" ]]; then
-            echo "::set-output name=dispatch::false"
+            echo "dispatch=false" >> "$GITHUB_OUTPUT"
           else
-            echo "::set-output name=dispatch::true"
+            echo "dispatch=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Dispatch event to server
         if: steps.check_token.outputs.dispatch == 'true'
-        uses: peter-evans/repository-dispatch@v1
+        uses: peter-evans/repository-dispatch@v4
         with:
           token: ${{ secrets.SERVER_REPO_TOKEN }}
           repository: complynx/server_configs

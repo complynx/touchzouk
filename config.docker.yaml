@@ -1,0 +1,27 @@
+server:
+  address: ":8080"
+  public_url: "${TOUCHZOUK_PUBLIC_URL}"
+
+data_dir: "/data"
+site_dir: "/app/site"
+
+database:
+  driver: "postgres"
+  dsn: "${TOUCHZOUK_POSTGRES_DSN}"
+
+media:
+  ffmpeg_path: "ffmpeg"
+  ffprobe_path: "ffprobe"
+  max_upload_mb: 2048
+  waveform_points: 1024
+
+auth:
+  mode: "zitadel"
+  session_secret: "${TOUCHZOUK_SESSION_SECRET}"
+  secure_cookies: true
+  zitadel:
+    issuer: "${TOUCHZOUK_ZITADEL_ISSUER}"
+    client_id: "${TOUCHZOUK_ZITADEL_CLIENT_ID}"
+    redirect_url: "${TOUCHZOUK_ZITADEL_REDIRECT_URL}"
+    project_id: "${TOUCHZOUK_ZITADEL_PROJECT_ID}"
+    admin_role: "${TOUCHZOUK_ZITADEL_ADMIN_ROLE}"
