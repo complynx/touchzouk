@@ -16,7 +16,7 @@ jobs:
       TOUCHZOUK_TEST_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/touchzouk_test?sslmode=disable
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:17-alpine
         env:
           POSTGRES_DB: touchzouk_test
           POSTGRES_PASSWORD: postgres
