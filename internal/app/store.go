@@ -315,7 +315,9 @@ func (s *Store) ReplaceMediaOrder(ctx context.Context, kind string, ids []string
 		return err
 	}
 	var expectedIDs []string
-	if err := tx.SelectContext(ctx, &expectedIDs, s.bind(`SELECT id FROM media_items WHERE kind = ?`), kind); err != nil {
+	if err := tx.SelectContext(
+		ctx, &expectedIDs, s.bind(`SELECT id FROM media_items WHERE kind = ?`), kind,
+	); err != nil {
 		return err
 	}
 	expected := make(map[string]bool, len(expectedIDs))
@@ -364,7 +366,12 @@ func (s *Store) setMediaOrder(ctx context.Context, tx *sqlx.Tx, kind string, ord
 	if err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, s.bind(`UPDATE app_settings SET value = ? WHERE key = ?`), string(encoded), mediaOrderSettingKey(kind))
+	_, err = tx.ExecContext(
+		ctx,
+		s.bind(`UPDATE app_settings SET value = ? WHERE key = ?`),
+		string(encoded),
+		mediaOrderSettingKey(kind),
+	)
 	return err
 }
 

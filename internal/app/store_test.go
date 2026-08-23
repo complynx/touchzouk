@@ -78,7 +78,9 @@ func TestCreatePublishedPrependsMediaOrder(t *testing.T) {
 			require.NoError(t, application.store.Create(t.Context(), old))
 			require.NoError(t, application.store.SetSetting(t.Context(), mediaOrderSettingKey(kind), `["old"]`))
 			require.NoError(t, application.store.CreatePublished(t.Context(), recentUpload))
-			require.ErrorIs(t, application.store.ReplaceMediaOrder(t.Context(), kind, []string{"old"}), ErrCatalogChanged)
+			require.ErrorIs(
+				t, application.store.ReplaceMediaOrder(t.Context(), kind, []string{"old"}), ErrCatalogChanged,
+			)
 
 			order, err := application.store.GetSetting(t.Context(), mediaOrderSettingKey(kind), "missing")
 			require.NoError(t, err)
