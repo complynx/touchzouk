@@ -78,6 +78,37 @@ function startAtlasSky() {
     const ratio = Math.max(0, Math.min(1, ((point.x - a.x) * (b.x - a.x) + (point.y - a.y) * (b.y - a.y)) / lengthSquared));
     return Math.hypot(point.x - (a.x + ratio * (b.x - a.x)), point.y - (a.y + ratio * (b.y - a.y)));
   };
+  const constellationChain = (ordered) => ordered.slice(1).map((star, index) => ({
+    a: ordered[index],
+    b: star,
+    distance: Math.hypot(ordered[index].x - star.x, ordered[index].y - star.y),
+  }));
+  const constellationOrders = (cluster) => {
+    const permutations = (points) => points.length < 2 ? [points] : points.flatMap((point, index) => (
+      permutations(points.filter((_, candidateIndex) => candidateIndex !== index))
+        .map((rest) => [point, ...rest])
+    ));
+    const minimumAngle = (ordered) => Math.min(...ordered.slice(1, -1).map((star, index) => {
+      const previous = ordered[index];
+      const next = ordered[index + 2];
+      const incoming = { x: previous.x - star.x, y: previous.y - star.y };
+      const outgoing = { x: next.x - star.x, y: next.y - star.y };
+      const cosine = (incoming.x * outgoing.x + incoming.y * outgoing.y)
+        / (Math.hypot(incoming.x, incoming.y) * Math.hypot(outgoing.x, outgoing.y));
+      return Math.acos(Math.max(-1, Math.min(1, cosine)));
+    }));
+    const minimumPreferredAngle = 20 * Math.PI / 180;
+    return permutations(cluster)
+      .map((ordered) => ({
+        ordered,
+        minimumAngle: minimumAngle(ordered),
+        distance: constellationChain(ordered).reduce((total, edge) => total + edge.distance, 0),
+      }))
+      .sort((left, right) => Number(left.minimumAngle < minimumPreferredAngle) - Number(right.minimumAngle < minimumPreferredAngle)
+        || left.distance - right.distance
+        || right.minimumAngle - left.minimumAngle)
+      .map(({ ordered }) => ordered);
+  };
   const scheduleShootingStar = (now) => {
     const normal = Math.sqrt(-2 * Math.log(1 - Math.random())) * Math.cos(Math.PI * 2 * Math.random());
     const delay = Math.max(12000, Math.min(55000, 30000 + normal * 7000));
@@ -193,24 +224,16 @@ function startAtlasSky() {
     const connectedClusters = [];
     candidates.forEach((cluster) => {
       if (connectedClusters.length >= maxClusters) return;
-      const ordered = [cluster[0]];
-      const pool = cluster.slice(1);
-      while (pool.length) {
-        const current = ordered.at(-1);
-        pool.sort((a, b) => Math.hypot(current.x - a.x, current.y - a.y) - Math.hypot(current.x - b.x, current.y - b.y));
-        ordered.push(pool.shift());
-      }
-      const chain = ordered.slice(1).map((star, index) => ({
-        a: ordered[index],
-        b: star,
-        distance: Math.hypot(ordered[index].x - star.x, ordered[index].y - star.y),
-      }));
       const relaxed = connectedClusters.length < 2;
-      const accepted = chain.every((candidate, index) => candidate.distance >= 30
-        && !edges.some((edge) => intersects(candidate, edge))
-        && !chain.slice(0, index).some((edge) => intersects(candidate, edge))
-        && (relaxed || !stars.some((star) => star !== candidate.a && star !== candidate.b && distanceToSegment(star, candidate.a, candidate.b) < 8)));
-      if (!accepted) return;
+      const ordered = constellationOrders(cluster).find((candidateOrder) => {
+        const candidateChain = constellationChain(candidateOrder);
+        return candidateChain.every((candidate, index) => candidate.distance >= 30
+          && !edges.some((edge) => intersects(candidate, edge))
+          && !candidateChain.slice(0, index).some((edge) => intersects(candidate, edge))
+          && (relaxed || !stars.some((star) => star !== candidate.a && star !== candidate.b && distanceToSegment(star, candidate.a, candidate.b) < 8)));
+      });
+      if (!ordered) return;
+      const chain = constellationChain(ordered);
       edges.push(...chain);
       connectedClusters.push(ordered);
     });
@@ -231,25 +254,13 @@ function startAtlasSky() {
       triples.some(({ stars: triple }) => {
         if (connectedClusters.length >= 2) return true;
         if (triple.some((star) => used.has(star))) return false;
-        const orders = [
-          triple,
-          [triple[0], triple[2], triple[1]],
-          [triple[1], triple[0], triple[2]],
-          [triple[1], triple[2], triple[0]],
-          [triple[2], triple[0], triple[1]],
-          [triple[2], triple[1], triple[0]],
-        ];
-        const order = orders.find((ordered) => {
-          const chain = ordered.slice(1).map((star, index) => ({ a: ordered[index], b: star }));
+        const order = constellationOrders(triple).find((ordered) => {
+          const chain = constellationChain(ordered);
           return chain.every((candidate, index) => !edges.some((edge) => intersects(candidate, edge))
             && !chain.slice(0, index).some((edge) => intersects(candidate, edge)));
         });
         if (!order) return false;
-        const chain = order.slice(1).map((star, index) => ({
-          a: order[index],
-          b: star,
-          distance: Math.hypot(order[index].x - star.x, order[index].y - star.y),
-        }));
+        const chain = constellationChain(order);
         edges.push(...chain);
         connectedClusters.push(order);
         order.forEach((star) => used.add(star));

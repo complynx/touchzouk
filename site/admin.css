@@ -96,6 +96,8 @@
 .admin-media-row.is-sortable { cursor: grab; touch-action: pan-y; }
 .admin-media-row.is-sortable .admin-row-actions { cursor: default; touch-action: auto; }
 .admin-media-row .track-copy strong { font-size: .74rem; }
+.admin-media-row .admin-meta { display: block; color: var(--mist); font-size: .72rem; }
+.admin-media-row .admin-meta[hidden] { display: none; }
 .admin-media-row .track-copy small { display: block; color: var(--gold-dim); font-size: .72rem; }
 .admin-row-status.is-error { color: #ef9c9c; }
 .admin-row-actions { grid-column: 3; display: flex; flex-wrap: wrap; gap: .3rem; }

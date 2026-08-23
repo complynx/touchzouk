@@ -658,6 +658,16 @@ async function fetchCatalog(kind) {
   return (await response.json()).items;
 }
 
+function catalogContext(item) {
+  const location = [item.city, item.country].filter(Boolean).join(", ");
+  const lead = item.kind === "set" ? item.event_name || item.subtitle : item.subtitle;
+  return [lead, location, item.played_at].filter(Boolean).join(" · ");
+}
+
+function catalogDetails(item) {
+  return [formatDuration(item.duration_seconds), ...(item.tags || [])].join(" · ");
+}
+
 function renderLibrary() {
   const library = document.querySelector("[data-admin-library]");
   const items = state.catalog[state.libraryKind];
@@ -676,9 +686,11 @@ function renderLibrary() {
     image.src = item.cover_url;
     image.alt = "";
     TouchzoukUI.applyCoverCrop(image, item);
-    row.querySelector(".admin-kind").textContent = item.kind;
     row.querySelector("strong").textContent = item.title;
-    row.querySelector(".admin-duration").textContent = formatDuration(item.duration_seconds);
+    const context = row.querySelector(".admin-meta");
+    context.textContent = catalogContext(item);
+    context.hidden = !context.textContent;
+    row.querySelector(".admin-details").textContent = catalogDetails(item);
     const rowStatus = row.querySelector(".admin-row-status");
     bindCatalogDrag(row, library, item.kind);
     row.querySelector(".edit-media").addEventListener("click", () => editItem(item));
@@ -711,7 +723,7 @@ function renderLibrary() {
         const { response, result } = await enqueueMutation(`/api/admin/media/${item.id}/waveform`, { method: "POST" });
         if (!response.ok) throw new Error(result.error || "Waveform rebuild failed");
         item.duration_seconds = result.duration_seconds;
-        row.querySelector(".admin-duration").textContent = formatDuration(result.duration_seconds);
+        row.querySelector(".admin-details").textContent = catalogDetails(item);
         rowStatus.textContent = "Waveform rebuilt.";
         await loadAll({ afterMutations: true });
       } catch (error) {
