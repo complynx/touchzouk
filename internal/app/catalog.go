@@ -15,7 +15,7 @@ import (
 )
 
 func (a *App) sortCatalog(ctx context.Context, kind string, items []MediaItem) {
-	if kind == mediaKindSong && a.sortSongsBySavedOrder(ctx, items) {
+	if a.sortBySavedOrder(ctx, kind, items) {
 		return
 	}
 	sort.SliceStable(items, func(left, right int) bool {
@@ -23,10 +23,10 @@ func (a *App) sortCatalog(ctx context.Context, kind string, items []MediaItem) {
 	})
 }
 
-func (a *App) sortSongsBySavedOrder(ctx context.Context, items []MediaItem) bool {
-	order, err := a.songOrder(ctx)
+func (a *App) sortBySavedOrder(ctx context.Context, kind string, items []MediaItem) bool {
+	order, err := a.mediaOrder(ctx, kind)
 	if err != nil {
-		slog.Warn("load saved song order", "error", err)
+		slog.Warn("load saved media order", "kind", kind, "error", err)
 		return false
 	}
 	if len(order) == 0 {
@@ -50,14 +50,18 @@ func (a *App) sortSongsBySavedOrder(ctx context.Context, items []MediaItem) bool
 	return true
 }
 
-func (a *App) songOrder(ctx context.Context) ([]string, error) {
-	encoded, err := a.store.GetSetting(ctx, "song_order", "[]")
+func mediaOrderSettingKey(kind string) string {
+	return kind + "_order"
+}
+
+func (a *App) mediaOrder(ctx context.Context, kind string) ([]string, error) {
+	encoded, err := a.store.GetSetting(ctx, mediaOrderSettingKey(kind), "[]")
 	if err != nil {
-		return nil, fmt.Errorf("load song order: %w", err)
+		return nil, fmt.Errorf("load %s order: %w", kind, err)
 	}
 	var order []string
 	if err := json.Unmarshal([]byte(encoded), &order); err != nil {
-		return nil, fmt.Errorf("decode song order: %w", err)
+		return nil, fmt.Errorf("decode %s order: %w", kind, err)
 	}
 	return order, nil
 }
@@ -132,15 +136,19 @@ func (a *App) adminSettings(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not load settings"})
 		return
 	}
-	order, err := a.songOrder(r.Context())
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not load settings"})
-		return
+	settings := map[string]any{"featured_set_id": pinned}
+	for _, kind := range []string{mediaKindSet, mediaKindSong} {
+		order, orderErr := a.mediaOrder(r.Context(), kind)
+		if orderErr != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not load settings"})
+			return
+		}
+		settings[mediaOrderSettingKey(kind)] = order
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"song_order": order, "featured_set_id": pinned})
+	writeJSON(w, http.StatusOK, settings)
 }
 
-func (a *App) updateSongOrder(w http.ResponseWriter, r *http.Request) {
+func (a *App) updateMediaOrder(w http.ResponseWriter, r *http.Request, kind string) {
 	if !a.validOrigin(r) {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "invalid request origin"})
 		return
@@ -150,36 +158,26 @@ func (a *App) updateSongOrder(w http.ResponseWriter, r *http.Request) {
 		IDs []string `json:"ids"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid song order"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid " + kind + " order"})
 		return
 	}
-	items, err := a.store.List(r.Context(), mediaKindSong)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not load songs"})
+	if err := a.store.ReplaceMediaOrder(r.Context(), kind, input.IDs); errors.Is(err, ErrCatalogChanged) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": kind + " list changed; reload before reordering"})
+		return
+	} else if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not save " + kind + " order"})
 		return
 	}
-	expected := make(map[string]bool, len(items))
-	for _, item := range items {
-		expected[item.ID] = true
-	}
-	seen := make(map[string]bool, len(input.IDs))
-	for _, id := range input.IDs {
-		if !expected[id] || seen[id] {
-			writeJSON(w, http.StatusConflict, map[string]string{"error": "song list changed; reload before reordering"})
-			return
-		}
-		seen[id] = true
-	}
-	if len(seen) != len(expected) {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "song list changed; reload before reordering"})
-		return
-	}
-	encoded, _ := json.Marshal(input.IDs)
-	if err := a.store.SetSetting(r.Context(), "song_order", string(encoded)); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not save song order"})
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"song_order": input.IDs})
+	key := mediaOrderSettingKey(kind)
+	writeJSON(w, http.StatusOK, map[string]any{key: input.IDs})
+}
+
+func (a *App) updateSetOrder(w http.ResponseWriter, r *http.Request) {
+	a.updateMediaOrder(w, r, mediaKindSet)
+}
+
+func (a *App) updateSongOrder(w http.ResponseWriter, r *http.Request) {
+	a.updateMediaOrder(w, r, mediaKindSong)
 }
 
 func (a *App) pinMedia(w http.ResponseWriter, r *http.Request) {

@@ -63,17 +63,50 @@ func TestPublishingClaimAndReleaseAreBatched(t *testing.T) {
 	require.NoError(t, store.ReleasePublishingUploads(t.Context()))
 }
 
+func TestCreatePublishedPrependsMediaOrder(t *testing.T) {
+	for _, kind := range []string{mediaKindSet, mediaKindSong} {
+		t.Run(kind, func(t *testing.T) {
+			application := testApp(t)
+			old := MediaItem{
+				ID: "old", Kind: kind, Title: "Old", PlayedAt: "2026-08-22",
+				CoverZoom: 1, CreatedAt: time.Now().Add(-time.Hour),
+			}
+			recentUpload := MediaItem{
+				ID: "recent-upload", Kind: kind, Title: "Recent upload", PlayedAt: "2020-01-01",
+				CoverZoom: 1, CreatedAt: time.Now(),
+			}
+			require.NoError(t, application.store.Create(t.Context(), old))
+			require.NoError(t, application.store.SetSetting(t.Context(), mediaOrderSettingKey(kind), `["old"]`))
+			require.NoError(t, application.store.CreatePublished(t.Context(), recentUpload))
+			require.ErrorIs(t, application.store.ReplaceMediaOrder(t.Context(), kind, []string{"old"}), ErrCatalogChanged)
+
+			order, err := application.store.GetSetting(t.Context(), mediaOrderSettingKey(kind), "missing")
+			require.NoError(t, err)
+			assert.JSONEq(t, `["recent-upload","old"]`, order)
+			items, err := application.store.List(t.Context(), kind)
+			require.NoError(t, err)
+			application.sortCatalog(t.Context(), kind, items)
+			require.Len(t, items, 2)
+			assert.Equal(t, recentUpload.ID, items[0].ID)
+		})
+	}
+}
+
 func TestMediaKindTransitionReconcilesOwnedSettings(t *testing.T) {
 	store := testApp(t).store
 	now := time.Now().UTC()
 	set := MediaItem{ID: "featured", Kind: mediaKindSet, Title: "Featured", CoverZoom: 1, CreatedAt: now}
 	require.NoError(t, store.Create(t.Context(), set))
 	require.NoError(t, store.SetSetting(t.Context(), "featured_set_id", set.ID))
+	require.NoError(t, store.SetSetting(t.Context(), "set_order", `["other","featured"]`))
 	set.Kind = mediaKindSong
 	require.NoError(t, store.Update(t.Context(), set))
 	featured, err := store.GetSetting(t.Context(), "featured_set_id", "missing")
 	require.NoError(t, err)
 	assert.Empty(t, featured)
+	setOrder, err := store.GetSetting(t.Context(), "set_order", "missing")
+	require.NoError(t, err)
+	assert.JSONEq(t, `["other"]`, setOrder)
 
 	song := MediaItem{ID: "ordered", Kind: mediaKindSong, Title: "Ordered", CoverZoom: 1, CreatedAt: now}
 	require.NoError(t, store.Create(t.Context(), song))

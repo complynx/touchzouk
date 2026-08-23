@@ -49,7 +49,8 @@ suggestion become available immediately. FFmpeg then decodes a mono analysis
 stream into a normalized waveform JSON cache, which is previewed before
 publishing. The square cover preview can be dragged with a mouse or touch and
 zoomed with a wheel or pinch gesture. Files are stored below `data_dir`; an
-administrator can edit or delete any entry, pin a featured set, drag songs into
-their public order, and regenerate waveforms.
+administrator can edit or delete any entry, pin a featured set, drag sets and
+songs into their public order, and regenerate waveforms. Newly published media
+is placed first in its list.
 Interrupted staged analyses resume after restart, and abandoned drafts are
 removed after their 24-hour expiry.

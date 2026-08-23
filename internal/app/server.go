@@ -159,6 +159,7 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("GET /media/{id}/{asset}", a.serveMedia)
 	mux.Handle("GET /api/admin/me", a.auth.RequireAdmin(http.HandlerFunc(a.adminMe)))
 	mux.Handle("GET /api/admin/settings", a.auth.RequireAdmin(http.HandlerFunc(a.adminSettings)))
+	mux.Handle("PUT /api/admin/settings/set-order", a.auth.RequireAdmin(http.HandlerFunc(a.updateSetOrder)))
 	mux.Handle("PUT /api/admin/settings/song-order", a.auth.RequireAdmin(http.HandlerFunc(a.updateSongOrder)))
 	mux.Handle("POST /api/admin/uploads/audio", a.auth.RequireAdmin(http.HandlerFunc(a.uploadAudioDraft)))
 	mux.Handle("POST /api/admin/uploads/cover", a.auth.RequireAdmin(http.HandlerFunc(a.uploadCoverDraft)))

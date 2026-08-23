@@ -5,7 +5,7 @@ const state = {
   libraryKind: "set",
   editorGeneration: 0,
   catalog: { set: [], song: [] },
-  settings: { featured_set_id: "", song_order: [] },
+  settings: { featured_set_id: "", set_order: [], song_order: [] },
   audioSequence: 0,
   coverSequence: 0,
   coverReplacementStarted: false,
@@ -39,7 +39,7 @@ const tagSuggestions = document.querySelector("[data-tag-suggestions]");
 let mutationQueue = Promise.resolve();
 let catalogLoadSequence = 0;
 let editorSavePending = false;
-let songOrderPending = false;
+let catalogOrderPending = false;
 const activeUploads = { audio: null, cover: null };
 
 function enqueueMutation(url, options) {
@@ -662,7 +662,7 @@ function renderLibrary() {
   const library = document.querySelector("[data-admin-library]");
   const items = state.catalog[state.libraryKind];
   library.replaceChildren();
-  document.querySelector("[data-song-order-hint]").hidden = state.libraryKind !== "song";
+  document.querySelector("[data-catalog-order-hint]").textContent = `Drag ${state.libraryKind}s into their public order.`;
   if (!items.length) {
     library.innerHTML = `<div class="admin-empty">No ${state.libraryKind}s published.</div>`;
     return;
@@ -671,7 +671,7 @@ function renderLibrary() {
   items.forEach((item) => {
     const row = template.content.firstElementChild.cloneNode(true);
     row.dataset.id = item.id;
-    row.classList.toggle("is-song", item.kind === "song");
+    row.classList.add("is-sortable");
     const image = row.querySelector(".admin-row-cover img");
     image.src = item.cover_url;
     image.alt = "";
@@ -680,9 +680,7 @@ function renderLibrary() {
     row.querySelector("strong").textContent = item.title;
     row.querySelector(".admin-duration").textContent = formatDuration(item.duration_seconds);
     const rowStatus = row.querySelector(".admin-row-status");
-    const dragHandle = row.querySelector(".drag-handle");
-    dragHandle.hidden = item.kind !== "song";
-    if (item.kind === "song") bindSongDrag(row, library);
+    bindCatalogDrag(row, library, item.kind);
     row.querySelector(".edit-media").addEventListener("click", () => editItem(item));
     const pin = row.querySelector(".pin-media");
     if (item.kind !== "set") pin.hidden = true;
@@ -729,29 +727,30 @@ function renderLibrary() {
   });
 }
 
-async function persistSongOrder(library, focusID = "") {
-  if (songOrderPending) return;
-  songOrderPending = true;
-  const ids = [...library.querySelectorAll(".admin-media-row.is-song")].map((row) => row.dataset.id);
+async function persistCatalogOrder(library, kind, focusID = "") {
+  if (catalogOrderPending) return;
+  catalogOrderPending = true;
+  const ids = [...library.querySelectorAll(".admin-media-row")].map((row) => row.dataset.id);
   try {
-    const { response, result } = await enqueueMutation("/api/admin/settings/song-order", {
+    const { response, result } = await enqueueMutation(`/api/admin/settings/${kind}-order`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ids }),
     });
-    if (!response.ok) throw new Error(result.error || "Could not save song order");
+    if (!response.ok) throw new Error(result.error || `Could not save ${kind} order`);
     const position = focusID ? ids.indexOf(focusID) + 1 : 0;
-    setMessage(position ? `Song order saved. Position ${position} of ${ids.length}.` : "Song order saved.");
+    const label = kind === "set" ? "Set" : "Song";
+    setMessage(position ? `${label} order saved. Position ${position} of ${ids.length}.` : `${label} order saved.`);
   } catch (error) {
     setMessage(error.message, true);
   } finally {
     await loadAll({ afterMutations: true });
-    songOrderPending = false;
+    catalogOrderPending = false;
   }
-  if (focusID) document.querySelector(`.admin-media-row.is-song[data-id="${CSS.escape(focusID)}"]`)?.focus();
+  if (focusID) document.querySelector(`.admin-media-row[data-id="${CSS.escape(focusID)}"]`)?.focus();
 }
 
-function bindSongDrag(row, library) {
+function bindCatalogDrag(row, library, kind) {
   let moved = false;
   let dragging = false;
   let dragFrame = 0;
@@ -765,7 +764,7 @@ function bindSongDrag(row, library) {
   row.tabIndex = 0;
   row.setAttribute("aria-label", `Drag ${row.querySelector("strong").textContent} to reorder`);
   const moveRow = (clientY) => {
-    const siblings = [...library.querySelectorAll(".admin-media-row.is-song")].filter((candidate) => candidate !== row);
+    const siblings = [...library.querySelectorAll(".admin-media-row")].filter((candidate) => candidate !== row);
     const before = siblings.find((candidate) => {
       const bounds = candidate.getBoundingClientRect();
       return clientY < bounds.top + bounds.height / 2;
@@ -829,12 +828,12 @@ function bindSongDrag(row, library) {
     if (library.hasPointerCapture?.(pointerId)) library.releasePointerCapture(pointerId);
     row.removeAttribute("aria-grabbed");
     row.classList.remove("is-dragging");
-    if (moved) void persistSongOrder(library);
+    if (moved) void persistCatalogOrder(library, kind);
     dragging = false;
     start = null;
   };
   row.addEventListener("pointerdown", (event) => {
-    if (songOrderPending) return;
+    if (catalogOrderPending) return;
     if (event.target.closest("button, a, input, select, textarea")) return;
     if (!event.isPrimary || event.button !== 0) return;
     if (event.pointerType !== "touch") event.preventDefault();
@@ -848,15 +847,15 @@ function bindSongDrag(row, library) {
     if (event.pointerType === "touch") holdTimer = setTimeout(beginDrag, 320);
   });
   row.addEventListener("keydown", (event) => {
-    if (songOrderPending) return;
+    if (catalogOrderPending) return;
     if (event.target !== row) return;
     if (!["ArrowUp", "ArrowDown"].includes(event.key)) return;
     event.preventDefault();
     const sibling = event.key === "ArrowUp" ? row.previousElementSibling : row.nextElementSibling;
-    if (!sibling?.classList.contains("is-song")) return;
+    if (!sibling?.classList.contains("admin-media-row")) return;
     if (event.key === "ArrowUp") library.insertBefore(row, sibling);
     else library.insertBefore(sibling, row);
-    void persistSongOrder(library, row.dataset.id);
+    void persistCatalogOrder(library, kind, row.dataset.id);
     row.focus();
   });
 }

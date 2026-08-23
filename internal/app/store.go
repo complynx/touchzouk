@@ -261,19 +261,110 @@ func (s *Store) bind(query string) string {
 	return s.db.Rebind(query)
 }
 
-func (s *Store) Create(ctx context.Context, item MediaItem) error {
-	record, err := newMediaRecord(item)
-	if err != nil {
-		return err
-	}
-	_, err = s.db.NamedExecContext(ctx, `INSERT INTO media_items (
+const insertMediaQuery = `INSERT INTO media_items (
 id, kind, title, subtitle, event_name, event_url, played_at, country, city,
 tags_json, telegram_url, duration_seconds, audio_path, cover_path, cover_position, cover_zoom, waveform_path, created_at
 ) VALUES (
 :id, :kind, :title, :subtitle, :event_name, :event_url, :played_at, :country, :city,
 :tags_json, :telegram_url, :duration_seconds, :audio_path, :cover_path, :cover_position,
 :cover_zoom, :waveform_path, :created_at
-)`, record)
+)`
+
+func (s *Store) Create(ctx context.Context, item MediaItem) error {
+	record, err := newMediaRecord(item)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.NamedExecContext(ctx, insertMediaQuery, record)
+	return err
+}
+
+func (s *Store) CreatePublished(ctx context.Context, item MediaItem) error {
+	record, err := newMediaRecord(item)
+	if err != nil {
+		return err
+	}
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	order, err := s.mediaOrderForUpdate(ctx, tx, item.Kind)
+	if err != nil {
+		return err
+	}
+	_, err = tx.NamedExecContext(ctx, insertMediaQuery, record)
+	if err != nil {
+		return err
+	}
+	order = slices.DeleteFunc(order, func(id string) bool { return id == item.ID })
+	order = append([]string{item.ID}, order...)
+	if err := s.setMediaOrder(ctx, tx, item.Kind, order); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *Store) ReplaceMediaOrder(ctx context.Context, kind string, ids []string) error {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := s.mediaOrderForUpdate(ctx, tx, kind); err != nil {
+		return err
+	}
+	var expectedIDs []string
+	if err := tx.SelectContext(ctx, &expectedIDs, s.bind(`SELECT id FROM media_items WHERE kind = ?`), kind); err != nil {
+		return err
+	}
+	expected := make(map[string]bool, len(expectedIDs))
+	for _, id := range expectedIDs {
+		expected[id] = true
+	}
+	seen := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		if !expected[id] || seen[id] {
+			return ErrCatalogChanged
+		}
+		seen[id] = true
+	}
+	if len(seen) != len(expected) {
+		return ErrCatalogChanged
+	}
+	if err := s.setMediaOrder(ctx, tx, kind, ids); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *Store) mediaOrderForUpdate(ctx context.Context, tx *sqlx.Tx, kind string) ([]string, error) {
+	key := mediaOrderSettingKey(kind)
+	if _, err := tx.ExecContext(ctx, s.bind(`INSERT INTO app_settings (key, value) VALUES (?, '[]')
+ON CONFLICT(key) DO NOTHING`), key); err != nil {
+		return nil, err
+	}
+	query := s.bind(`SELECT value FROM app_settings WHERE key = ?`)
+	if s.postgres {
+		query += " FOR UPDATE"
+	}
+	var encoded string
+	if err := tx.GetContext(ctx, &encoded, query, key); err != nil {
+		return nil, err
+	}
+	var order []string
+	if err := json.Unmarshal([]byte(encoded), &order); err != nil {
+		return nil, fmt.Errorf("decode %s: %w", key, err)
+	}
+	return order, nil
+}
+
+func (s *Store) setMediaOrder(ctx context.Context, tx *sqlx.Tx, kind string, order []string) error {
+	encoded, err := json.Marshal(order)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, s.bind(`UPDATE app_settings SET value = ? WHERE key = ?`), string(encoded), mediaOrderSettingKey(kind))
 	return err
 }
 
@@ -326,30 +417,17 @@ func (s *Store) reconcileMediaKind(ctx context.Context, tx *sqlx.Tx, id, previou
 
 func (s *Store) removeKindSettings(ctx context.Context, tx *sqlx.Tx, id, kind string) error {
 	if kind == mediaKindSet {
-		_, err := tx.ExecContext(ctx, s.bind(`UPDATE app_settings SET value = ''
-WHERE key = 'featured_set_id' AND value = ?`), id)
-		return err
+		if _, err := tx.ExecContext(ctx, s.bind(`UPDATE app_settings SET value = ''
+WHERE key = 'featured_set_id' AND value = ?`), id); err != nil {
+			return err
+		}
 	}
-	var encoded string
-	err := tx.GetContext(ctx, &encoded, `SELECT value FROM app_settings WHERE key = 'song_order'`)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil
-	}
+	order, err := s.mediaOrderForUpdate(ctx, tx, kind)
 	if err != nil {
 		return err
-	}
-	var order []string
-	if decodeErr := json.Unmarshal([]byte(encoded), &order); decodeErr != nil {
-		return fmt.Errorf("decode song order: %w", decodeErr)
 	}
 	order = slices.DeleteFunc(order, func(orderedID string) bool { return orderedID == id })
-	encodedOrder, err := json.Marshal(order)
-	if err != nil {
-		return err
-	}
-	query := s.bind(`UPDATE app_settings SET value = ? WHERE key = 'song_order'`)
-	_, err = tx.ExecContext(ctx, query, string(encodedOrder))
-	return err
+	return s.setMediaOrder(ctx, tx, kind, order)
 }
 
 func (s *Store) Delete(ctx context.Context, id string) error {
@@ -645,4 +723,7 @@ func (s *Store) UpdateAnalysis(ctx context.Context, id string, duration float64,
 	return err
 }
 
-var ErrNotFound = errors.New("not found")
+var (
+	ErrNotFound       = errors.New("not found")
+	ErrCatalogChanged = errors.New("catalog changed")
+)

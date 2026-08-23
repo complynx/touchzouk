@@ -87,21 +87,18 @@
 .library-tabs button:last-child { border-right: 0; }
 .library-tabs button[aria-pressed="true"] { color: var(--cream); background: rgb(var(--gold-rgb) / .07); }
 .library-tabs span { margin-left: .3rem; color: var(--gold); }
-.song-order-hint { margin: 0; padding: .65rem .8rem; border-bottom: 1px solid var(--soft-rule); color: var(--gold-dim); font-size: .72rem; }
+.catalog-order-hint { margin: 0; padding: .65rem .8rem; border-bottom: 1px solid var(--soft-rule); color: var(--gold-dim); font-size: .72rem; }
 .admin-media-row { display: grid; grid-template-columns: 1.65rem 3.8rem minmax(0, 1fr); gap: .65rem; padding: .72rem .8rem; border-bottom: 1px solid var(--soft-rule); }
 .admin-row-cover { grid-row: 1 / 3; grid-column: 2; width: 3.8rem; height: 3.8rem; }
 .admin-row-cover img { width: 100%; height: 100%; object-fit: cover; }
 .drag-handle { grid-row: 1 / 3; display: grid; width: 1.65rem; place-items: center; color: var(--gold-dim); font-size: 1rem; pointer-events: none; }
 .drag-handle[hidden] { display: none; }
-.admin-media-row.is-song { cursor: grab; touch-action: pan-y; }
-.admin-media-row.is-song .admin-row-actions { cursor: default; touch-action: auto; }
-.admin-media-row:not(.is-song) { grid-template-columns: 3.8rem minmax(0, 1fr); }
-.admin-media-row:not(.is-song) .admin-row-cover { grid-column: 1; }
+.admin-media-row.is-sortable { cursor: grab; touch-action: pan-y; }
+.admin-media-row.is-sortable .admin-row-actions { cursor: default; touch-action: auto; }
 .admin-media-row .track-copy strong { font-size: .74rem; }
 .admin-media-row .track-copy small { display: block; color: var(--gold-dim); font-size: .72rem; }
 .admin-row-status.is-error { color: #ef9c9c; }
 .admin-row-actions { grid-column: 3; display: flex; flex-wrap: wrap; gap: .3rem; }
-.admin-media-row:not(.is-song) .admin-row-actions { grid-column: 2; }
 .admin-row-actions .quiet-button { min-height: 2.75rem; padding: .4rem .65rem; font-size: .75rem; }
 .admin-row-actions .pin-media[hidden] { display: none; }
 .admin-row-actions .pin-media.is-pinned { border-color: var(--gold); color: var(--cream); }

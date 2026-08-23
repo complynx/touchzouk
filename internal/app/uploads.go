@@ -879,7 +879,7 @@ func (a *App) finalizeMediaPublish(ctx context.Context, item MediaItem, journal 
 		}
 		completed = append(completed, move)
 	}
-	if createErr := a.store.Create(ctx, item); createErr != nil {
+	if createErr := a.store.CreatePublished(ctx, item); createErr != nil {
 		_, confirmErr := a.probeMediaAfterWrite(item.ID)
 		switch {
 		case confirmErr == nil:

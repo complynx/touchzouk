@@ -636,39 +636,43 @@ func TestApplyMediaInputPreservesOmittedCoverPosition(t *testing.T) {
 	assert.InDelta(t, 3, item.CoverZoom, 0)
 }
 
-func TestSongOrderPersistsExactCatalogOrder(t *testing.T) {
-	application := testApp(t)
-	for _, item := range []MediaItem{
-		{ID: "first", Kind: "song", Title: "First", CoverZoom: 1, CreatedAt: time.Now().Add(-time.Hour)},
-		{ID: "second", Kind: "song", Title: "Second", CoverZoom: 1, CreatedAt: time.Now()},
-	} {
-		require.NoError(t, application.store.Create(context.Background(), item))
-	}
-	request := httptest.NewRequestWithContext(
-		t.Context(),
-		http.MethodPut,
-		"/api/admin/settings/song-order",
-		strings.NewReader(`{"ids":["first","second"]}`),
-	)
-	response := httptest.NewRecorder()
-	application.updateSongOrder(response, request)
-	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
-	items, err := application.store.List(context.Background(), "song")
-	require.NoError(t, err)
-	application.sortCatalog(context.Background(), "song", items)
-	require.Len(t, items, 2)
-	assert.Equal(t, "first", items[0].ID)
-	assert.Equal(t, "second", items[1].ID)
+func TestMediaOrderPersistsExactCatalogOrder(t *testing.T) {
+	for _, kind := range []string{mediaKindSet, mediaKindSong} {
+		t.Run(kind, func(t *testing.T) {
+			application := testApp(t)
+			for _, item := range []MediaItem{
+				{ID: "first", Kind: kind, Title: "First", CoverZoom: 1, CreatedAt: time.Now().Add(-time.Hour)},
+				{ID: "second", Kind: kind, Title: "Second", CoverZoom: 1, CreatedAt: time.Now()},
+			} {
+				require.NoError(t, application.store.Create(context.Background(), item))
+			}
+			request := httptest.NewRequestWithContext(
+				t.Context(),
+				http.MethodPut,
+				"/api/admin/settings/"+kind+"-order",
+				strings.NewReader(`{"ids":["first","second"]}`),
+			)
+			response := httptest.NewRecorder()
+			application.updateMediaOrder(response, request, kind)
+			require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+			items, err := application.store.List(context.Background(), kind)
+			require.NoError(t, err)
+			application.sortCatalog(context.Background(), kind, items)
+			require.Len(t, items, 2)
+			assert.Equal(t, "first", items[0].ID)
+			assert.Equal(t, "second", items[1].ID)
 
-	request = httptest.NewRequestWithContext(
-		t.Context(),
-		http.MethodPut,
-		"/api/admin/settings/song-order",
-		strings.NewReader(`{"ids":["first"]}`),
-	)
-	response = httptest.NewRecorder()
-	application.updateSongOrder(response, request)
-	require.Equal(t, http.StatusConflict, response.Code)
+			request = httptest.NewRequestWithContext(
+				t.Context(),
+				http.MethodPut,
+				"/api/admin/settings/"+kind+"-order",
+				strings.NewReader(`{"ids":["first"]}`),
+			)
+			response = httptest.NewRecorder()
+			application.updateMediaOrder(response, request, kind)
+			require.Equal(t, http.StatusConflict, response.Code)
+		})
+	}
 }
 
 func TestAdminSettingsReportsInvalidSongOrder(t *testing.T) {
@@ -710,7 +714,7 @@ func TestDeleteMediaRemovesAssetsAndSettings(t *testing.T) {
 	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
 	_, err := application.store.Get(context.Background(), item.ID)
 	require.ErrorIs(t, err, ErrNotFound)
-	order, err := application.songOrder(context.Background())
+	order, err := application.mediaOrder(context.Background(), mediaKindSong)
 	require.NoError(t, err)
 	assert.Empty(t, order)
 	for _, relative := range []string{item.AudioPath, item.CoverPath, item.WaveformPath} {
