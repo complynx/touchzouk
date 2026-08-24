@@ -86,7 +86,8 @@ func newMediaRecord(item MediaItem) (mediaRecord, error) {
 func (record mediaRecord) mediaItem() (MediaItem, error) {
 	item := MediaItem{
 		ID: record.ID, Kind: record.Kind, Title: record.Title, Subtitle: record.Subtitle,
-		EventName: record.EventName, EventURL: record.EventURL, LocationURL: record.LocationURL, PlayedAt: record.PlayedAt,
+		EventName: record.EventName, EventURL: record.EventURL,
+		LocationURL: record.LocationURL, PlayedAt: record.PlayedAt,
 		Country: record.Country, City: record.City, TelegramURL: record.TelegramURL,
 		DurationSeconds: record.DurationSeconds, AudioPath: record.AudioPath, CoverPath: record.CoverPath,
 		CoverPosition: record.CoverPosition, CoverZoom: record.CoverZoom,

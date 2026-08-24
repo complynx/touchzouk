@@ -132,6 +132,7 @@ func createSeedItem(store *app.Store, cfg app.Config, item seedItem) error {
 	return nil
 }
 
+//nolint:funlen // The declarative seed catalog is clearer as one ordered fixture.
 func catalog(siteDir, assetsDir string) []seedItem {
 	cover := func(name string) string { return filepath.Join(siteDir, "static", name) }
 	audio := func(name string) string { return filepath.Join(assetsDir, name) }

@@ -888,8 +888,10 @@ func TestCleanEventURL(t *testing.T) {
 		want  string
 	}{
 		"missing scheme": {input: "events.example/night", want: "https://events.example/night"},
-		"scheme in query": {input: "events.example/tickets?return=https://tickets.example",
-			want: "https://events.example/tickets?return=https://tickets.example"},
+		"scheme in query": {
+			input: "events.example/tickets?return=https://tickets.example",
+			want:  "https://events.example/tickets?return=https://tickets.example",
+		},
 		"uppercase scheme": {input: "HTTPS://events.example/night", want: "https://events.example/night"},
 		"full URL":         {input: "http://events.example/night", want: "http://events.example/night"},
 		"invalid":          {input: "javascript:alert(1)", want: ""},
@@ -903,18 +905,25 @@ func TestCleanEventURL(t *testing.T) {
 }
 
 func TestCleanLocationURL(t *testing.T) {
+	const (
+		mapsSearchPrefix = "https://www.google.com/maps/search/?api=1&query="
+		mapsPlaceURL     = "https://maps.google.com/place/example"
+	)
 	tests := map[string]struct {
 		input string
 		want  string
 	}{
-		"coordinates":             {input: "52.3676, 4.9041", want: "https://www.google.com/maps/search/?api=1&query=52.3676%2C4.9041"},
-		"spaced coordinates":      {input: "-33.8569 151.2152", want: "https://www.google.com/maps/search/?api=1&query=-33.8569%2C151.2152"},
-		"full Plus Code":          {input: "9c5m8qq7+v8r", want: "https://www.google.com/maps/search/?api=1&query=9C5M8QQ7%2BV8R"},
-		"short Plus Code":         {input: "97mf+27 Mumbai, India", want: "https://www.google.com/maps/search/?api=1&query=97MF%2B27+Mumbai%2C+India"},
-		"padded Plus Code":        {input: "6GCR0000+", want: "https://www.google.com/maps/search/?api=1&query=6GCR0000%2B"},
-		"refined Plus Code":       {input: "9C5M8QQ7+V8R4F2", want: "https://www.google.com/maps/search/?api=1&query=9C5M8QQ7%2BV8R4F2"},
-		"Maps URL":                {input: "maps.google.com/place/example", want: "https://maps.google.com/place/example"},
-		"HTTP Maps URL":           {input: "http://maps.google.com/place/example", want: "https://maps.google.com/place/example"},
+		"coordinates":        {input: "52.3676, 4.9041", want: mapsSearchPrefix + "52.3676%2C4.9041"},
+		"spaced coordinates": {input: "-33.8569 151.2152", want: mapsSearchPrefix + "-33.8569%2C151.2152"},
+		"full Plus Code":     {input: "9c5m8qq7+v8r", want: mapsSearchPrefix + "9C5M8QQ7%2BV8R"},
+		"short Plus Code": {
+			input: "97mf+27 Mumbai, India",
+			want:  mapsSearchPrefix + "97MF%2B27+Mumbai%2C+India",
+		},
+		"padded Plus Code":        {input: "6GCR0000+", want: mapsSearchPrefix + "6GCR0000%2B"},
+		"refined Plus Code":       {input: "9C5M8QQ7+V8R4F2", want: mapsSearchPrefix + "9C5M8QQ7%2BV8R4F2"},
+		"Maps URL":                {input: "maps.google.com/place/example", want: mapsPlaceURL},
+		"HTTP Maps URL":           {input: "http://maps.google.com/place/example", want: mapsPlaceURL},
 		"shared Maps URL":         {input: "https://maps.app.goo.gl/example", want: "https://maps.app.goo.gl/example"},
 		"legacy shared Maps URL":  {input: "https://goo.gl/maps/example", want: "https://goo.gl/maps/example"},
 		"invalid coordinates":     {input: "95, 4", want: ""},

@@ -542,14 +542,21 @@ func defaultHTTPS(value string) string {
 	}
 }
 
-var coordinatePairPattern = regexp.MustCompile(`^([+-]?(?:\d+(?:\.\d+)?|\.\d+))\s*(?:,\s*|\s+)([+-]?(?:\d+(?:\.\d+)?|\.\d+))$`)
+var coordinatePairPattern = regexp.MustCompile(
+	`^([+-]?(?:\d+(?:\.\d+)?|\.\d+))\s*(?:,\s*|\s+)` +
+		`([+-]?(?:\d+(?:\.\d+)?|\.\d+))$`,
+)
 
 const plusCodeAlphabet = "23456789CFGHJMPQRVWX"
 
 func isValidPlusCode(code string) bool {
 	code = strings.ToUpper(code)
 	separator := strings.IndexByte(code, '+')
-	if len(code) < 2 || separator < 0 || separator != strings.LastIndexByte(code, '+') || separator > 8 || separator%2 != 0 {
+	if len(code) < 2 ||
+		separator < 0 ||
+		separator != strings.LastIndexByte(code, '+') ||
+		separator > 8 ||
+		separator%2 != 0 {
 		return false
 	}
 	suffixLength := len(code) - separator - 1
@@ -567,6 +574,10 @@ func isValidPlusCode(code string) bool {
 			return false
 		}
 	}
+	return hasValidPlusCodeCharacters(code, paddingStart, paddingEnd)
+}
+
+func hasValidPlusCodeCharacters(code string, paddingStart, paddingEnd int) bool {
 	for index := range len(code) {
 		character := code[index]
 		if character == '+' || (paddingStart >= 0 && index >= paddingStart && index < paddingEnd) {
@@ -587,7 +598,10 @@ func cleanLocationURL(value string) string {
 	if match := coordinatePairPattern.FindStringSubmatch(value); match != nil {
 		latitude, latitudeErr := strconv.ParseFloat(match[1], 64)
 		longitude, longitudeErr := strconv.ParseFloat(match[2], 64)
-		if latitudeErr != nil || longitudeErr != nil || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180 {
+		if latitudeErr != nil ||
+			longitudeErr != nil ||
+			latitude < -90 || latitude > 90 ||
+			longitude < -180 || longitude > 180 {
 			return ""
 		}
 		coordinates := strconv.FormatFloat(latitude, 'f', -1, 64) + "," + strconv.FormatFloat(longitude, 'f', -1, 64)
@@ -600,7 +614,10 @@ func cleanLocationURL(value string) string {
 	}
 	value = defaultHTTPS(value)
 	parsed, err := url.Parse(value)
-	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.User != nil || !isGoogleMapsURL(parsed) {
+	if err != nil ||
+		(parsed.Scheme != "http" && parsed.Scheme != "https") ||
+		parsed.User != nil ||
+		!isGoogleMapsURL(parsed) {
 		return ""
 	}
 	parsed.Scheme = "https"
