@@ -6,7 +6,6 @@ Scope: whole repo.
 - LF text only. Never enable Windows line-ending conversion.
 - Before audio playback test: set visible Volume slider to `0`; verify. Keep muted unless sound absolutely needed.
 - Review loop: use `review-loop` skill.
-- Memento = durable repo memory for future agents. Tattoos here; task-specific detail in `.notes`.
+- Memento = durable, non-obvious repo memory. No task log. Add only repeated-struggle fixes or user steering. Skip when nothing durable learned.
 - Read [memento guide](.notes/README.md) for deeper explanation, routing, maintenance. Open relevant notes only.
-- Task success: maintain memento with nolan-memento principles.
 - agents.md and notes - use caveman
