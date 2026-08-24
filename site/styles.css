@@ -288,6 +288,9 @@ button, a { -webkit-tap-highlight-color: transparent; }
 }
 .media-wave-row > time { color: var(--gold); font-family: var(--display); font-size: var(--media-time-size); font-variant-numeric: tabular-nums; line-height: 1; text-align: center; }
 .media-seek-track:has(input:focus-visible) :is(.waveform, canvas) { filter: brightness(1.14) drop-shadow(0 0 .24rem rgb(var(--gold-rgb) / .34)); }
+.location-link { display: inline-flex; align-items: center; gap: .28rem; color: inherit; text-decoration: none; }
+.location-link svg { width: .72rem; height: .9rem; flex: 0 0 auto; fill: currentColor; }
+.location-link:is(:hover, :focus-visible) { color: var(--gold-bright); }
 
 .hero {
   position: relative;

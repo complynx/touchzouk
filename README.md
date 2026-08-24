@@ -41,7 +41,9 @@ The admin stages one set or song at a time:
 - required metadata: title and cover (title falls back to the embedded audio
   title tag and remains editable in the form);
 - optional metadata: subtitle, event name/link, partial play date/time,
-  country/city, up to three tags, and a Telegram post link.
+  country/city, Google Maps location, up to three tags, and a Telegram post
+  link. Event links may omit `https://`; location accepts a Google Maps link,
+  coordinate pair, or Plus Code.
 
 Audio and cover uploads begin as soon as files are selected or dropped. FFprobe
 first extracts title and duration so the editable fields and 12-minute set/song

@@ -52,7 +52,8 @@
 .card-title { --shine-visible: 0; width: max-content; max-width: 100%; margin: .08rem 0; overflow: hidden; padding: 0; border: 0; color: transparent; background: radial-gradient(circle 2.8rem at var(--shine-x, -10rem) var(--shine-y, -10rem), rgb(255 250 224 / .98), rgb(237 195 111 / .72) 36%, transparent 74%), linear-gradient(var(--cream), var(--cream)); background-clip: text; -webkit-background-clip: text; font-family: var(--display); font-size: clamp(.82rem, 1.4vw, 1.08rem); font-weight: 500; letter-spacing: .025em; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .card-subtitle { overflow: hidden; color: var(--mist); font-size: .75rem; text-overflow: ellipsis; white-space: nowrap; }
 .card-meta { display: flex; flex-wrap: wrap; gap: .25rem .8rem; margin-top: .25rem; color: var(--gold-dim); font-size: .75rem; letter-spacing: .06em; text-transform: uppercase; }
-.card-meta > span:empty { display: none; }
+.card-meta > :is(span, a):empty { display: none; }
+.card-location-link { position: relative; z-index: 1; }
 .card-tags { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .42rem; }
 .card-tags i { padding: .12rem .42rem; border: 1px solid var(--soft-rule); border-radius: 999px; color: var(--gold-dim); font-size: .7rem; font-style: normal; }
 .card-actions { display: flex; align-items: center; gap: .45rem; padding: 0 .4rem; }

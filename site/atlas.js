@@ -603,7 +603,10 @@ function renderCatalog(kind) {
     setText(".card-title", item.title, card);
     setText(".card-subtitle", item.subtitle, card);
     setText(".card-played-at", item.played_at, card);
-    setText(".card-location", itemLocation(item), card);
+    const location = card.querySelector(".card-location");
+    const locationLink = TouchzoukUI.createLocationLink(item, "card-location-link");
+    if (locationLink) location.replaceWith(locationLink);
+    else location.textContent = itemLocation(item);
     const tags = card.querySelector(".card-tags");
     item.tags?.forEach((tag) => {
       const pill = document.createElement("i");

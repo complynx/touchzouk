@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -517,6 +518,122 @@ func cleanURL(value string) string {
 		return ""
 	}
 	return parsed.String()
+}
+
+func cleanEventURL(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	return cleanURL(defaultHTTPS(value))
+}
+
+func defaultHTTPS(value string) string {
+	lower := strings.ToLower(value)
+	switch {
+	case strings.HasPrefix(value, "//"):
+		return "https:" + value
+	case strings.HasPrefix(lower, "http://"):
+		return "http://" + value[len("http://"):]
+	case strings.HasPrefix(lower, "https://"):
+		return "https://" + value[len("https://"):]
+	default:
+		return "https://" + value
+	}
+}
+
+var coordinatePairPattern = regexp.MustCompile(`^([+-]?(?:\d+(?:\.\d+)?|\.\d+))\s*(?:,\s*|\s+)([+-]?(?:\d+(?:\.\d+)?|\.\d+))$`)
+
+const plusCodeAlphabet = "23456789CFGHJMPQRVWX"
+
+func isValidPlusCode(code string) bool {
+	code = strings.ToUpper(code)
+	separator := strings.IndexByte(code, '+')
+	if len(code) < 2 || separator < 0 || separator != strings.LastIndexByte(code, '+') || separator > 8 || separator%2 != 0 {
+		return false
+	}
+	suffixLength := len(code) - separator - 1
+	if suffixLength == 1 || separator+suffixLength > 15 {
+		return false
+	}
+	paddingStart := strings.IndexByte(code, '0')
+	paddingEnd := paddingStart
+	if paddingStart >= 0 {
+		for paddingEnd < separator && code[paddingEnd] == '0' {
+			paddingEnd++
+		}
+		paddingLength := paddingEnd - paddingStart
+		if separator != 8 || paddingStart == 0 || paddingEnd != separator || paddingLength%2 != 0 || suffixLength != 0 {
+			return false
+		}
+	}
+	for index := range len(code) {
+		character := code[index]
+		if character == '+' || (paddingStart >= 0 && index >= paddingStart && index < paddingEnd) {
+			continue
+		}
+		if !strings.ContainsRune(plusCodeAlphabet, rune(character)) {
+			return false
+		}
+	}
+	return true
+}
+
+func cleanLocationURL(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || len(value) > 2048 {
+		return ""
+	}
+	if match := coordinatePairPattern.FindStringSubmatch(value); match != nil {
+		latitude, latitudeErr := strconv.ParseFloat(match[1], 64)
+		longitude, longitudeErr := strconv.ParseFloat(match[2], 64)
+		if latitudeErr != nil || longitudeErr != nil || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180 {
+			return ""
+		}
+		coordinates := strconv.FormatFloat(latitude, 'f', -1, 64) + "," + strconv.FormatFloat(longitude, 'f', -1, 64)
+		return googleMapsSearchURL(coordinates)
+	}
+	fields := strings.Fields(value)
+	if len(fields) > 0 && isValidPlusCode(fields[0]) {
+		fields[0] = strings.ToUpper(fields[0])
+		return googleMapsSearchURL(strings.Join(fields, " "))
+	}
+	value = defaultHTTPS(value)
+	parsed, err := url.Parse(value)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.User != nil || !isGoogleMapsURL(parsed) {
+		return ""
+	}
+	parsed.Scheme = "https"
+	result := parsed.String()
+	if len(result) > 2048 {
+		return ""
+	}
+	return result
+}
+
+func googleMapsSearchURL(query string) string {
+	parameters := url.Values{"api": {"1"}, "query": {query}}
+	result := "https://www.google.com/maps/search/?" + parameters.Encode()
+	if len(result) > 2048 {
+		return ""
+	}
+	return result
+}
+
+func isGoogleMapsURL(parsed *url.URL) bool {
+	host := strings.ToLower(parsed.Hostname())
+	switch host {
+	case "google.com", "www.google.com":
+		return parsed.Path == "/maps" || strings.HasPrefix(parsed.Path, "/maps/")
+	case "maps.google.com":
+		return true
+	case "maps.app.goo.gl":
+		return strings.Trim(parsed.Path, "/") != ""
+	case "goo.gl":
+		return parsed.Path == "/maps" || strings.HasPrefix(parsed.Path, "/maps/")
+	default:
+		return false
+	}
 }
 
 func cleanTelegramURL(value string) string {

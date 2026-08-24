@@ -25,6 +25,7 @@ type mediaInput struct {
 	Subtitle      string   `json:"subtitle"`
 	EventName     string   `json:"event_name"`
 	EventURL      string   `json:"event_url"`
+	LocationURL   string   `json:"location_url"`
 	PlayedAt      string   `json:"played_at"`
 	Country       string   `json:"country"`
 	City          string   `json:"city"`
@@ -551,7 +552,7 @@ func (a *App) uploadResponse(draft UploadDraft) map[string]any {
 		"duration_seconds": draft.DurationSeconds,
 		"status_url":       "/api/admin/uploads/" + draft.ID,
 	}
-	if draft.Kind == uploadKindCover {
+	if draft.Kind == uploadKindCover || draft.Kind == uploadKindAudio {
 		response["asset_url"] = "/api/admin/uploads/" + draft.ID + "/asset"
 	}
 	if draft.Kind == uploadKindAudio {
@@ -726,17 +727,21 @@ func applyMediaInput(item *MediaItem, input mediaInput) error {
 	}
 	if input.Kind == mediaKindSet {
 		item.EventName = cleanText(input.EventName, 180)
-		item.EventURL = cleanURL(input.EventURL)
+		item.EventURL = cleanEventURL(input.EventURL)
+		item.LocationURL = cleanLocationURL(input.LocationURL)
 		item.Country = cleanText(input.Country, 100)
 		item.City = cleanText(input.City, 100)
 	} else {
-		item.EventName, item.EventURL, item.Country, item.City = "", "", "", ""
+		item.EventName, item.EventURL, item.LocationURL, item.Country, item.City = "", "", "", "", ""
 	}
 	if item.Title == "" {
 		return errors.New("title is required")
 	}
 	if input.EventURL != "" && item.EventURL == "" {
 		return errors.New("event link must be an http or https URL")
+	}
+	if input.LocationURL != "" && item.LocationURL == "" {
+		return errors.New("location must be a Google Maps link, coordinate pair, or Plus Code")
 	}
 	if input.TelegramURL != "" && item.TelegramURL == "" {
 		return errors.New("telegram post must be a number or an http or https URL")

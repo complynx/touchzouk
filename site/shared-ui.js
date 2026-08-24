@@ -48,6 +48,22 @@
     image.style.removeProperty("transform");
   }
 
+  function createLocationLink(item, className = "") {
+    const label = [item.city, item.country].filter(Boolean).join(" · ") || "Location";
+    if (!item.location_url) return null;
+    const link = document.createElement("a");
+    link.className = `location-link ${className}`.trim();
+    link.href = item.location_url;
+    link.target = "_blank";
+    link.rel = "noreferrer";
+    link.setAttribute("aria-label", `Open ${label} in Google Maps`);
+    link.innerHTML = '<svg aria-hidden="true" viewBox="0 0 16 20"><path d="M8 1.25a6 6 0 0 0-6 6c0 4.5 6 11.5 6 11.5s6-7 6-11.5a6 6 0 0 0-6-6Zm0 8.35a2.35 2.35 0 1 1 0-4.7 2.35 2.35 0 0 1 0 4.7Z"/></svg>';
+    const text = document.createElement("span");
+    text.textContent = label;
+    link.append(text);
+    return link;
+  }
+
   function pointerRatio(event, surface) {
     const bounds = surface.getBoundingClientRect();
     if (!bounds.width) return 0;
@@ -101,5 +117,5 @@
     input.addEventListener("input", () => { if (activePointerId === null) onSeek(Number(input.value) / 1000); });
   }
 
-  window.TouchzoukUI = { applyCoverCrop, bindPointerShine, bindSeeker, coverValues, pointerRatio, rebinWaveform, waveformHoverStyle };
+  window.TouchzoukUI = { applyCoverCrop, bindPointerShine, bindSeeker, coverValues, createLocationLink, pointerRatio, rebinWaveform, waveformHoverStyle };
 })();

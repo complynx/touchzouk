@@ -13,7 +13,8 @@ func TestMediaRecordRoundTrip(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	item := MediaItem{
 		ID: "media-record", Kind: mediaKindSet, Title: "Record", Subtitle: "All fields",
-		EventName: "Event", EventURL: "https://example.com/event", PlayedAt: "2026-08-22 22:00",
+		EventName: "Event", EventURL: "https://example.com/event",
+		LocationURL: "https://maps.google.com/place", PlayedAt: "2026-08-22 22:00",
 		Country: "Netherlands", City: "Amsterdam", Tags: []string{"one", "two"},
 		TelegramURL: "https://t.me/touchzouk/1", DurationSeconds: 123.5,
 		AudioPath: "audio/record.ogg", CoverPath: "covers/record.webp", CoverPosition: "40% 60%",

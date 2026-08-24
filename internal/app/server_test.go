@@ -137,7 +137,8 @@ func TestAdminStubLoginAndMediaEdit(t *testing.T) {
 	assert.InDelta(t, 123.5, item.DurationSeconds, 0)
 	assert.Len(t, item.Tags, 3)
 	assert.Equal(t, "https://t.me/touchzouk/314", item.TelegramURL)
-	updateBody := strings.NewReader(`{"kind":"set","title":"Edited title","telegram_url":"telegram.me/touchzouk/315"}`)
+	updateBody := strings.NewReader(`{"kind":"set","title":"Edited title","event_url":"events.example/night",` +
+		`"location_url":"52.3676, 4.9041","telegram_url":"telegram.me/touchzouk/315"}`)
 	request := newClientRequest(t, http.MethodPatch, server.URL+"/api/admin/media/"+item.ID, updateBody)
 	request.Header.Set("Content-Type", "application/json")
 	response, err = client.Do(request)
@@ -164,6 +165,8 @@ func TestAdminStubLoginAndMediaEdit(t *testing.T) {
 	require.Len(t, catalog.Items, 1)
 	assert.NotEmpty(t, catalog.Items[0].AudioURL)
 	assert.Equal(t, "Edited title", catalog.Items[0].Title)
+	assert.Equal(t, "https://events.example/night", catalog.Items[0].EventURL)
+	assert.Equal(t, "https://www.google.com/maps/search/?api=1&query=52.3676%2C4.9041", catalog.Items[0].LocationURL)
 	assert.Equal(t, "https://telegram.me/touchzouk/315", catalog.Items[0].TelegramURL)
 }
 
@@ -475,6 +478,7 @@ func TestStagedUploadPublishesSong(t *testing.T) {
 	audioID, audioUpload := stageTestAudio(t, client, server.URL)
 	assert.Equal(t, "Embedded title", audioUpload["title"])
 	assert.Equal(t, "song", audioUpload["suggested_kind"])
+	assert.Equal(t, "/api/admin/uploads/"+audioID+"/asset", audioUpload["asset_url"])
 	coverID := stageTestCover(t, client, server.URL)
 	item := publishTestSong(t, client, server.URL, audioID, coverID)
 	assert.Equal(t, "song", item.Kind)
@@ -874,6 +878,55 @@ func TestCleanTelegramURL(t *testing.T) {
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
 			assert.Equal(t, test.want, cleanTelegramURL(test.input))
+		})
+	}
+}
+
+func TestCleanEventURL(t *testing.T) {
+	tests := map[string]struct {
+		input string
+		want  string
+	}{
+		"missing scheme": {input: "events.example/night", want: "https://events.example/night"},
+		"scheme in query": {input: "events.example/tickets?return=https://tickets.example",
+			want: "https://events.example/tickets?return=https://tickets.example"},
+		"uppercase scheme": {input: "HTTPS://events.example/night", want: "https://events.example/night"},
+		"full URL":         {input: "http://events.example/night", want: "http://events.example/night"},
+		"invalid":          {input: "javascript:alert(1)", want: ""},
+		"empty":            {input: " ", want: ""},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, test.want, cleanEventURL(test.input))
+		})
+	}
+}
+
+func TestCleanLocationURL(t *testing.T) {
+	tests := map[string]struct {
+		input string
+		want  string
+	}{
+		"coordinates":             {input: "52.3676, 4.9041", want: "https://www.google.com/maps/search/?api=1&query=52.3676%2C4.9041"},
+		"spaced coordinates":      {input: "-33.8569 151.2152", want: "https://www.google.com/maps/search/?api=1&query=-33.8569%2C151.2152"},
+		"full Plus Code":          {input: "9c5m8qq7+v8r", want: "https://www.google.com/maps/search/?api=1&query=9C5M8QQ7%2BV8R"},
+		"short Plus Code":         {input: "97mf+27 Mumbai, India", want: "https://www.google.com/maps/search/?api=1&query=97MF%2B27+Mumbai%2C+India"},
+		"padded Plus Code":        {input: "6GCR0000+", want: "https://www.google.com/maps/search/?api=1&query=6GCR0000%2B"},
+		"refined Plus Code":       {input: "9C5M8QQ7+V8R4F2", want: "https://www.google.com/maps/search/?api=1&query=9C5M8QQ7%2BV8R4F2"},
+		"Maps URL":                {input: "maps.google.com/place/example", want: "https://maps.google.com/place/example"},
+		"HTTP Maps URL":           {input: "http://maps.google.com/place/example", want: "https://maps.google.com/place/example"},
+		"shared Maps URL":         {input: "https://maps.app.goo.gl/example", want: "https://maps.app.goo.gl/example"},
+		"legacy shared Maps URL":  {input: "https://goo.gl/maps/example", want: "https://goo.gl/maps/example"},
+		"invalid coordinates":     {input: "95, 4", want: ""},
+		"single Plus Code suffix": {input: "9C5M8QQ7+V", want: ""},
+		"overlong Plus Code":      {input: "9C5M8QQ7+V8R4F2C2", want: ""},
+		"Google redirect URL":     {input: "https://www.google.com/url?q=https://example.com", want: ""},
+		"generic short URL":       {input: "https://goo.gl/example", want: ""},
+		"non-Google URL":          {input: "https://example.com/place", want: ""},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, test.want, cleanLocationURL(test.input))
 		})
 	}
 }

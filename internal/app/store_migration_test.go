@@ -40,6 +40,7 @@ VALUES (
 	assert.Equal(t, "Legacy set", item.Title)
 	assert.Equal(t, "50% 50%", item.CoverPosition)
 	assert.InDelta(t, 1, item.CoverZoom, 0)
+	assert.Empty(t, item.LocationURL)
 }
 
 func TestPostgresStoreRoundTrip(t *testing.T) {
@@ -69,6 +70,7 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 	})
 	item := MediaItem{
 		ID: id, Kind: mediaKindSong, Title: "Postgres round trip", Tags: []string{"integration"},
+		LocationURL:     "https://maps.google.com/place/example",
 		DurationSeconds: 42, AudioPath: "audio/test.ogg", CoverPath: "covers/test.webp",
 		WaveformPath: "waveforms/test.json", CreatedAt: now,
 	}
@@ -77,6 +79,7 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, item.Title, stored.Title)
 	assert.Equal(t, item.Tags, stored.Tags)
+	assert.Equal(t, item.LocationURL, stored.LocationURL)
 
 	draft := UploadDraft{
 		ID: id, Kind: "audio", Path: "uploads/test.ogg", Title: "Draft", State: "publishing",

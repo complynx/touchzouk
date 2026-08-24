@@ -22,6 +22,7 @@ type MediaItem struct {
 	Subtitle        string    `json:"subtitle,omitempty"`
 	EventName       string    `json:"event_name,omitempty"`
 	EventURL        string    `json:"event_url,omitempty"`
+	LocationURL     string    `json:"location_url,omitempty"`
 	PlayedAt        string    `json:"played_at,omitempty"`
 	Country         string    `json:"country,omitempty"`
 	City            string    `json:"city,omitempty"`
@@ -46,6 +47,7 @@ type mediaRecord struct {
 	Subtitle        string    `db:"subtitle"`
 	EventName       string    `db:"event_name"`
 	EventURL        string    `db:"event_url"`
+	LocationURL     string    `db:"location_url"`
 	PlayedAt        string    `db:"played_at"`
 	Country         string    `db:"country"`
 	City            string    `db:"city"`
@@ -73,7 +75,7 @@ func newMediaRecord(item MediaItem) (mediaRecord, error) {
 	}
 	return mediaRecord{
 		ID: item.ID, Kind: item.Kind, Title: item.Title, Subtitle: item.Subtitle,
-		EventName: item.EventName, EventURL: item.EventURL, PlayedAt: item.PlayedAt,
+		EventName: item.EventName, EventURL: item.EventURL, LocationURL: item.LocationURL, PlayedAt: item.PlayedAt,
 		Country: item.Country, City: item.City, TagsJSON: string(tags), TelegramURL: item.TelegramURL,
 		DurationSeconds: item.DurationSeconds, AudioPath: item.AudioPath, CoverPath: item.CoverPath,
 		CoverPosition: item.CoverPosition, CoverZoom: item.CoverZoom,
@@ -84,7 +86,7 @@ func newMediaRecord(item MediaItem) (mediaRecord, error) {
 func (record mediaRecord) mediaItem() (MediaItem, error) {
 	item := MediaItem{
 		ID: record.ID, Kind: record.Kind, Title: record.Title, Subtitle: record.Subtitle,
-		EventName: record.EventName, EventURL: record.EventURL, PlayedAt: record.PlayedAt,
+		EventName: record.EventName, EventURL: record.EventURL, LocationURL: record.LocationURL, PlayedAt: record.PlayedAt,
 		Country: record.Country, City: record.City, TelegramURL: record.TelegramURL,
 		DurationSeconds: record.DurationSeconds, AudioPath: record.AudioPath, CoverPath: record.CoverPath,
 		CoverPosition: record.CoverPosition, CoverZoom: record.CoverZoom,
@@ -152,6 +154,7 @@ CREATE TABLE IF NOT EXISTS media_items (
     subtitle TEXT NOT NULL DEFAULT '',
     event_name TEXT NOT NULL DEFAULT '',
     event_url TEXT NOT NULL DEFAULT '',
+    location_url TEXT NOT NULL DEFAULT '',
     played_at TEXT NOT NULL DEFAULT '',
     country TEXT NOT NULL DEFAULT '',
     city TEXT NOT NULL DEFAULT '',
@@ -196,7 +199,17 @@ CREATE TABLE IF NOT EXISTS upload_drafts (
 	if err := s.ensureMediaCoverZoom(ctx); err != nil {
 		return fmt.Errorf("migrate cover zoom: %w", err)
 	}
+	if err := s.ensureMediaLocationURL(ctx); err != nil {
+		return fmt.Errorf("migrate location URL: %w", err)
+	}
 	return nil
+}
+
+func (s *Store) ensureMediaLocationURL(ctx context.Context) error {
+	const postgresQuery = `ALTER TABLE media_items
+ADD COLUMN IF NOT EXISTS location_url TEXT NOT NULL DEFAULT ''`
+	const sqliteQuery = `ALTER TABLE media_items ADD COLUMN location_url TEXT NOT NULL DEFAULT ''`
+	return s.ensureMediaColumn(ctx, "location_url", postgresQuery, sqliteQuery)
 }
 
 func (s *Store) ensureMediaCoverZoom(ctx context.Context) error {
@@ -262,10 +275,10 @@ func (s *Store) bind(query string) string {
 }
 
 const insertMediaQuery = `INSERT INTO media_items (
-id, kind, title, subtitle, event_name, event_url, played_at, country, city,
+id, kind, title, subtitle, event_name, event_url, location_url, played_at, country, city,
 tags_json, telegram_url, duration_seconds, audio_path, cover_path, cover_position, cover_zoom, waveform_path, created_at
 ) VALUES (
-:id, :kind, :title, :subtitle, :event_name, :event_url, :played_at, :country, :city,
+:id, :kind, :title, :subtitle, :event_name, :event_url, :location_url, :played_at, :country, :city,
 :tags_json, :telegram_url, :duration_seconds, :audio_path, :cover_path, :cover_position,
 :cover_zoom, :waveform_path, :created_at
 )`
@@ -395,7 +408,7 @@ func (s *Store) Update(ctx context.Context, item MediaItem) error {
 	}
 	result, err := tx.NamedExecContext(ctx, `UPDATE media_items SET
 kind = :kind, title = :title, subtitle = :subtitle, event_name = :event_name,
-event_url = :event_url, played_at = :played_at, country = :country, city = :city,
+event_url = :event_url, location_url = :location_url, played_at = :played_at, country = :country, city = :city,
 tags_json = :tags_json, telegram_url = :telegram_url, duration_seconds = :duration_seconds,
 audio_path = :audio_path, cover_path = :cover_path, cover_position = :cover_position,
 cover_zoom = :cover_zoom, waveform_path = :waveform_path WHERE id = :id`, record)
@@ -678,7 +691,7 @@ func (s *Store) SettingsWithPrefix(ctx context.Context, prefix string) (map[stri
 	return settings, rows.Err()
 }
 
-const selectMediaColumns = `id, kind, title, subtitle, event_name, event_url, played_at,
+const selectMediaColumns = `id, kind, title, subtitle, event_name, event_url, location_url, played_at,
 country, city, tags_json, telegram_url, duration_seconds, audio_path, cover_path,
 cover_position, cover_zoom, waveform_path, created_at`
 

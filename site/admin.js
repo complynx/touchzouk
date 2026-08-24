@@ -13,6 +13,15 @@ const state = {
   kindDirty: false,
   coverTransform: { x: 50, y: 50, zoom: 1 },
   waveformPreviewController: null,
+  previewWaveform: [],
+  previewHoverRatio: null,
+  previewSource: "",
+  previewTitle: "audio preview",
+  previewPlayRequested: false,
+  previewStarting: false,
+  previewSeeking: false,
+  previewSeekWasPlaying: false,
+  previewIntent: 0,
 };
 
 const form = document.querySelector("#media-form");
@@ -34,12 +43,20 @@ const cancelEdit = document.querySelector("[data-cancel-edit]");
 const editorTitle = document.querySelector("#editor-title");
 const editorContext = document.querySelector("[data-editor-context]");
 const uploadWaveform = document.querySelector("[data-upload-waveform]");
+const rebuildWave = document.querySelector("[data-rebuild-wave]");
+const previewAudio = document.querySelector("[data-preview-audio]");
+const previewPlay = document.querySelector("[data-preview-play]");
+const previewSeek = document.querySelector("[data-preview-seek]");
+const previewVolume = document.querySelector("[data-preview-volume]");
+const previewCurrent = document.querySelector("[data-preview-current]");
+const previewDuration = document.querySelector("[data-preview-duration]");
 const deleteDialog = document.querySelector("[data-delete-dialog]");
 const tagSuggestions = document.querySelector("[data-tag-suggestions]");
 let mutationQueue = Promise.resolve();
 let catalogLoadSequence = 0;
 let editorSavePending = false;
 let catalogOrderPending = false;
+let previewWaveformFrame = 0;
 const activeUploads = { audio: null, cover: null };
 
 function enqueueMutation(url, options) {
@@ -193,31 +210,10 @@ function setCoverTransform(position = "50% 50%", zoom = 1) {
   TouchzoukUI.applyCoverCrop(coverPreview, { cover_position: `${values.x}% ${values.y}%`, cover_zoom: values.zoom });
 }
 
-async function drawUploadWaveform(url, sequence = state.audioSequence) {
-  state.waveformPreviewController?.abort();
-  const controller = new AbortController();
-  state.waveformPreviewController = controller;
-  uploadWaveform.hidden = !state.editing;
-  if (!url) return;
-  let points;
-  try {
-    const response = await fetch(url, { cache: "no-cache", signal: controller.signal });
-    if (!response.ok || sequence !== state.audioSequence) return;
-    points = (await response.json()).points || [];
-  } catch (error) {
-    if (error.name !== "AbortError") {
-      console.error(error);
-      if (state.editing) {
-        uploadWaveform.hidden = false;
-        setAssetStatus(audioStatus, "Waveform preview unavailable. Activate it to rebuild.", true);
-      }
-    }
-    return;
-  }
-  if (controller.signal.aborted || sequence !== state.audioSequence) return;
+function paintPreviewWaveform() {
   const bounds = uploadWaveform.getBoundingClientRect();
   const width = Math.max(1, Math.floor(bounds.width || 420));
-  const height = 52;
+  const height = Math.max(1, Math.floor(bounds.height || 52));
   const ratio = window.devicePixelRatio || 1;
   uploadWaveform.width = Math.floor(width * ratio);
   uploadWaveform.height = Math.floor(height * ratio);
@@ -225,19 +221,211 @@ async function drawUploadWaveform(url, sequence = state.audioSequence) {
   const context = uploadWaveform.getContext("2d");
   context.setTransform(ratio, 0, 0, ratio, 0, 0);
   context.clearRect(0, 0, width, height);
-  const count = Math.max(32, Math.floor(width / 4));
-  const bins = Array.from({ length: count }, (_, index) => {
-    const start = Math.floor(index * points.length / count);
-    const end = Math.max(start + 1, Math.floor((index + 1) * points.length / count));
-    return Math.max(0, ...points.slice(start, end));
-  });
+  const source = state.previewWaveform.length ? state.previewWaveform : Array.from({ length: 180 }, () => 0);
+  const count = Math.max(18, Math.min(source.length, Math.floor(width / 4)));
+  const bins = TouchzoukUI.rebinWaveform(source, count);
+  const progress = previewAudio.duration ? previewAudio.currentTime / previewAudio.duration : 0;
+  const step = width / bins.length;
+  const hoverIndex = state.previewHoverRatio == null ? -10 : Math.min(bins.length - 1, Math.floor(state.previewHoverRatio * bins.length));
   bins.forEach((point, index) => {
-    const barHeight = Math.max(2, point * height * .82);
-    context.fillStyle = "rgba(239, 227, 206, .62)";
-    context.fillRect(index * width / count, (height - barHeight) / 2, Math.max(1, width / count - 2), barHeight);
+    const played = progress > 0 && (index + .5) / bins.length <= progress;
+    const hover = TouchzoukUI.waveformHoverStyle(Math.abs(index - hoverIndex), played);
+    const barHeight = Math.max(2, point * height * .82) * (hover?.scale || 1);
+    context.fillStyle = played ? "#efe3ce" : "rgba(239, 227, 206, .32)";
+    if (hover) {
+      context.fillStyle = hover.fill;
+      context.shadowColor = hover.shadow;
+      context.shadowBlur = hover.blur;
+    }
+    context.fillRect(index * step, (height - barHeight) / 2, Math.max(1, step - 2), barHeight);
+    context.shadowBlur = 0;
   });
-  uploadWaveform.hidden = false;
 }
+
+function requestPreviewWaveformPaint() {
+  if (previewWaveformFrame) return;
+  previewWaveformFrame = requestAnimationFrame(() => {
+    previewWaveformFrame = 0;
+    paintPreviewWaveform();
+  });
+}
+
+async function drawUploadWaveform(url, sequence = state.audioSequence) {
+  state.waveformPreviewController?.abort();
+  state.previewWaveform = [];
+  paintPreviewWaveform();
+  if (!url) return;
+  const controller = new AbortController();
+  state.waveformPreviewController = controller;
+  try {
+    const response = await fetch(url, { cache: "no-cache", signal: controller.signal });
+    if (!response.ok || sequence !== state.audioSequence) return;
+    const points = (await response.json()).points || [];
+    if (controller.signal.aborted || sequence !== state.audioSequence) return;
+    state.previewWaveform = points;
+    paintPreviewWaveform();
+  } catch (error) {
+    if (error.name !== "AbortError") {
+      console.error(error);
+      if (state.editing) setAssetStatus(audioStatus, "Waveform preview unavailable. Use Rebuild wave to retry.", true);
+    }
+  }
+}
+
+function setPreviewVolume(value) {
+  previewAudio.volume = Number(value);
+  previewVolume.value = value;
+  previewVolume.style.setProperty("--volume-percent", `${Math.round(Number(value) * 100)}%`);
+  previewVolume.setAttribute("aria-valuetext", `${Math.round(Number(value) * 100)} percent`);
+}
+
+function updatePreviewPlayState(unavailable = false) {
+  previewPlay.classList.toggle("is-playing", state.previewPlayRequested);
+  const action = state.previewPlayRequested ? "Pause" : "Play";
+  previewPlay.setAttribute("aria-label", unavailable ? `${state.previewTitle} is unavailable` : `${action} ${state.previewTitle}`);
+}
+
+function setPreviewMetadata(title, duration) {
+  state.previewTitle = title || "audio preview";
+  const effectiveDuration = duration || (Number.isFinite(previewAudio.duration) ? previewAudio.duration : 0);
+  previewDuration.textContent = formatDuration(effectiveDuration);
+  previewSeek.setAttribute("aria-label", `Seek through ${state.previewTitle}`);
+  previewSeek.setAttribute("aria-valuetext", `${formatDuration(previewAudio.currentTime)} of ${formatDuration(effectiveDuration)}`);
+  updatePreviewPlayState();
+}
+
+function setPreviewSource(source, title, duration = 0) {
+  if (!source) return;
+  const absoluteSource = new URL(source, window.location.href).href;
+  if (state.previewSource !== absoluteSource) {
+    state.previewIntent += 1;
+    state.previewPlayRequested = false;
+    state.previewStarting = false;
+    previewAudio.pause();
+    state.previewSource = absoluteSource;
+    previewAudio.src = source;
+    previewSeek.value = "0";
+    previewCurrent.textContent = "00:00";
+  }
+  previewPlay.disabled = false;
+  setPreviewMetadata(title, duration);
+  updatePreviewPlayState();
+}
+
+function clearPreview() {
+  state.previewIntent += 1;
+  state.previewPlayRequested = false;
+  state.previewStarting = false;
+  state.previewSeeking = false;
+  state.previewSeekWasPlaying = false;
+  state.previewSource = "";
+  state.previewTitle = "audio preview";
+  state.previewWaveform = [];
+  previewAudio.pause();
+  previewAudio.removeAttribute("src");
+  previewAudio.load();
+  previewPlay.disabled = true;
+  previewSeek.disabled = true;
+  previewSeek.value = "0";
+  previewCurrent.textContent = "00:00";
+  previewDuration.textContent = "00:00";
+  updatePreviewPlayState();
+  paintPreviewWaveform();
+}
+
+async function playPreview() {
+  if (!state.previewSource) return;
+  const intent = ++state.previewIntent;
+  state.previewPlayRequested = true;
+  state.previewStarting = true;
+  updatePreviewPlayState();
+  try {
+    await previewAudio.play();
+    if (intent !== state.previewIntent) {
+      if (!state.previewPlayRequested) previewAudio.pause();
+      return;
+    }
+    state.previewStarting = false;
+    if (!state.previewPlayRequested) previewAudio.pause();
+  } catch {
+    if (intent !== state.previewIntent) return;
+    state.previewStarting = false;
+    state.previewPlayRequested = false;
+    updatePreviewPlayState(true);
+  }
+}
+
+function pausePreview() {
+  state.previewIntent += 1;
+  state.previewStarting = false;
+  state.previewPlayRequested = false;
+  previewAudio.pause();
+  updatePreviewPlayState();
+}
+
+function paintPreviewProgress() {
+  const progress = previewAudio.duration ? previewAudio.currentTime / previewAudio.duration : 0;
+  previewSeek.value = String(Math.round(progress * 1000));
+  previewCurrent.textContent = formatDuration(previewAudio.currentTime);
+  const duration = formatDuration(previewAudio.duration);
+  previewDuration.textContent = duration;
+  previewSeek.setAttribute("aria-valuetext", `${previewCurrent.textContent} of ${duration}`);
+  requestPreviewWaveformPaint();
+}
+
+setPreviewVolume(previewVolume.value);
+previewVolume.addEventListener("input", () => setPreviewVolume(previewVolume.value));
+previewPlay.addEventListener("click", () => state.previewPlayRequested ? pausePreview() : void playPreview());
+previewAudio.addEventListener("loadedmetadata", () => {
+  previewSeek.disabled = false;
+  setPreviewMetadata(state.previewTitle, previewAudio.duration);
+  paintPreviewProgress();
+});
+previewAudio.addEventListener("timeupdate", paintPreviewProgress);
+previewAudio.addEventListener("ended", () => {
+  state.previewPlayRequested = false;
+  updatePreviewPlayState();
+});
+previewAudio.addEventListener("play", () => {
+  if (!state.previewPlayRequested) {
+    previewAudio.pause();
+    return;
+  }
+  updatePreviewPlayState();
+});
+previewAudio.addEventListener("pause", () => {
+  if (!state.previewStarting && !state.previewSeeking) state.previewPlayRequested = false;
+  updatePreviewPlayState();
+});
+TouchzoukUI.bindSeeker({
+  input: previewSeek,
+  surface: uploadWaveform,
+  onSeekStart: () => {
+    state.previewSeekWasPlaying = state.previewPlayRequested;
+    state.previewSeeking = true;
+  },
+  onSeek: (progress) => {
+    if (!previewAudio.duration) return;
+    previewSeek.value = String(Math.round(progress * 1000));
+    previewAudio.currentTime = progress * previewAudio.duration;
+    paintPreviewProgress();
+    if (state.previewSeekWasPlaying && previewAudio.paused && !state.previewStarting) void playPreview();
+  },
+  onSeekEnd: () => {
+    if (state.previewSeekWasPlaying) void playPreview();
+    state.previewSeekWasPlaying = false;
+    state.previewSeeking = false;
+  },
+});
+uploadWaveform.parentElement.addEventListener("pointermove", (event) => {
+  state.previewHoverRatio = TouchzoukUI.pointerRatio(event, uploadWaveform);
+  requestPreviewWaveformPaint();
+});
+uploadWaveform.parentElement.addEventListener("pointerleave", () => {
+  state.previewHoverRatio = null;
+  requestPreviewWaveformPaint();
+});
+window.addEventListener("resize", paintPreviewWaveform);
 
 async function pollAudio(uploadID, sequence) {
   for (let attempt = 0; attempt < 3600; attempt += 1) {
@@ -247,6 +435,7 @@ async function pollAudio(uploadID, sequence) {
     if (sequence !== state.audioSequence) return;
     if (!response.ok) throw new Error(upload.error || "Could not read audio status");
     if (upload.state === "failed") throw new Error(upload.error || "Audio analysis failed");
+    setPreviewSource(upload.asset_url, upload.title || upload.filename, upload.duration_seconds);
     if (upload.duration_seconds > 0) {
       if (!form.elements.title.value.trim() || form.elements.title.value === state.autoTitle) {
         form.elements.title.value = upload.title || "";
@@ -282,6 +471,7 @@ async function startAudioUpload(file) {
   const sequence = ++state.audioSequence;
   state.kindDirty = false;
   state.audioUpload = null;
+  clearPreview();
   void drawUploadWaveform("", sequence);
   audioReady.hidden = true;
   audioDrop.hidden = false;
@@ -295,6 +485,11 @@ async function startAudioUpload(file) {
       setProgress(audioProgress, percent);
     });
     if (sequence !== state.audioSequence) return;
+    audioDrop.hidden = true;
+    audioReady.hidden = false;
+    document.querySelector("[data-audio-name]").textContent = upload.filename;
+    document.querySelector("[data-audio-detail]").textContent = "Uploaded · waiting for metadata and waveform";
+    setPreviewSource(upload.asset_url, upload.filename);
     setAssetStatus(audioStatus, "Analyzing audio and creating waveform…");
     setProgress(audioProgress, 100, true);
     await pollAudio(upload.id, sequence);
@@ -461,6 +656,7 @@ function mediaPayload() {
     subtitle: form.elements.subtitle.value,
     event_name: isSet ? form.elements.event_name.value : "",
     event_url: isSet ? form.elements.event_url.value : "",
+    location_url: isSet ? form.elements.location_url.value : "",
     played_at: form.elements.played_at.value,
     country: isSet ? form.elements.country.value : "",
     city: isSet ? form.elements.city.value : "",
@@ -481,6 +677,8 @@ function cancelPendingEditorAssets() {
   state.audioUpload = null;
   state.coverUpload = null;
   state.coverReplacementStarted = false;
+  state.waveformPreviewController?.abort();
+  clearPreview();
   audioInput.value = "";
   coverInput.value = "";
   hideProgress(audioProgress);
@@ -497,6 +695,7 @@ function resetEditor() {
   state.autoTitle = "";
   state.kindDirty = false;
   form.reset();
+  setPreviewVolume(previewVolume.value);
   setKind("set");
   audioDrop.hidden = false;
   audioReady.hidden = true;
@@ -506,11 +705,7 @@ function resetEditor() {
   coverDrop.setAttribute("aria-label", "Choose a cover, or drop one here");
   coverTools.hidden = true;
   setCoverTransform();
-  uploadWaveform.hidden = true;
-  uploadWaveform.classList.remove("is-actionable");
-  uploadWaveform.removeAttribute("role");
-  uploadWaveform.removeAttribute("tabindex");
-  uploadWaveform.setAttribute("aria-label", "Analyzed waveform preview");
+  rebuildWave.hidden = true;
   setAssetStatus(audioStatus, "");
   setAssetStatus(coverStatus, "");
   editorTitle.textContent = "New media";
@@ -535,6 +730,7 @@ function editItem(item) {
   form.elements.subtitle.value = item.subtitle || "";
   form.elements.event_name.value = item.event_name || "";
   form.elements.event_url.value = item.event_url || "";
+  form.elements.location_url.value = item.location_url || "";
   form.elements.played_at.value = item.played_at || "";
   form.elements.country.value = item.country || "";
   form.elements.city.value = item.city || "";
@@ -546,10 +742,8 @@ function editItem(item) {
   document.querySelector("[data-audio-name]").textContent = item.title;
   document.querySelector("[data-audio-detail]").textContent = `${formatDuration(item.duration_seconds)} · existing audio`;
   setAssetStatus(audioStatus, "Audio is retained while editing.");
-  uploadWaveform.classList.add("is-actionable");
-  uploadWaveform.setAttribute("role", "button");
-  uploadWaveform.tabIndex = 0;
-  uploadWaveform.setAttribute("aria-label", `Rebuild waveform for ${item.title}`);
+  rebuildWave.hidden = false;
+  setPreviewSource(item.audio_url, item.title, item.duration_seconds);
   void drawUploadWaveform(item.waveform_url);
   coverPreview.src = item.cover_url;
   coverPreview.hidden = false;
@@ -572,8 +766,10 @@ async function rebuildEditorWaveform() {
   if (!item || waveformRebuildPending) return;
   const generation = state.editorGeneration;
   waveformRebuildPending = true;
+  rebuildWave.disabled = true;
   uploadWaveform.setAttribute("aria-busy", "true");
   setAssetStatus(audioStatus, "Rebuilding waveform…");
+  void drawUploadWaveform("");
   try {
     const { response, result } = await enqueueMutation(`/api/admin/media/${item.id}/waveform`, { method: "POST" });
     if (!response.ok) throw new Error(result.error || "Waveform rebuild failed");
@@ -587,18 +783,15 @@ async function rebuildEditorWaveform() {
   } catch (error) {
     if (generation === state.editorGeneration) setAssetStatus(audioStatus, error.message, true);
     await loadAll({ afterMutations: true });
+    if (generation === state.editorGeneration && state.editing?.id === item.id) await drawUploadWaveform(item.waveform_url);
   } finally {
     waveformRebuildPending = false;
+    rebuildWave.disabled = false;
     uploadWaveform.removeAttribute("aria-busy");
   }
 }
 
-uploadWaveform.addEventListener("click", () => { void rebuildEditorWaveform(); });
-uploadWaveform.addEventListener("keydown", (event) => {
-  if (!state.editing || !["Enter", " "].includes(event.key)) return;
-  event.preventDefault();
-  void rebuildEditorWaveform();
-});
+rebuildWave.addEventListener("click", () => { void rebuildEditorWaveform(); });
 
 cancelEdit.addEventListener("click", resetEditor);
 
@@ -658,10 +851,16 @@ async function fetchCatalog(kind) {
   return (await response.json()).items;
 }
 
-function catalogContext(item) {
-  const location = [item.city, item.country].filter(Boolean).join(", ");
+function renderCatalogContext(element, item) {
   const lead = item.kind === "set" ? item.event_name || item.subtitle : item.subtitle;
-  return [lead, location, item.played_at].filter(Boolean).join(" · ");
+  const location = [item.city, item.country].filter(Boolean).join(", ");
+  const locationLink = TouchzoukUI.createLocationLink(item, "admin-location-link");
+  const parts = [lead, locationLink || location, item.played_at].filter(Boolean);
+  parts.forEach((part, index) => {
+    if (index) element.append(document.createTextNode(" · "));
+    element.append(part instanceof Node ? part : document.createTextNode(part));
+  });
+  element.hidden = !parts.length;
 }
 
 function catalogDetails(item) {
@@ -688,8 +887,7 @@ function renderLibrary() {
     TouchzoukUI.applyCoverCrop(image, item);
     row.querySelector("strong").textContent = item.title;
     const context = row.querySelector(".admin-meta");
-    context.textContent = catalogContext(item);
-    context.hidden = !context.textContent;
+    renderCatalogContext(context, item);
     row.querySelector(".admin-details").textContent = catalogDetails(item);
     const rowStatus = row.querySelector(".admin-row-status");
     bindCatalogDrag(row, library, item.kind);
