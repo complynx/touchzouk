@@ -5,6 +5,8 @@ const seek = document.querySelector("[data-seek]");
 const currentTime = document.querySelector("[data-current]");
 const duration = document.querySelector("[data-duration]");
 const volume = document.querySelector("[data-featured-volume]");
+const shareButton = document.querySelector("[data-share]");
+const shareStatus = document.querySelector("[data-share-status]");
 const menuButton = document.querySelector(".menu-toggle");
 const menu = document.querySelector(".site-nav");
 const menuLabel = menuButton.querySelector(".sr-only");
@@ -17,6 +19,9 @@ let seekWasPlaying = false;
 let waveformSource = [];
 let hoverWaveformRatio = null;
 let waveformPaintFrame = 0;
+let currentItem = null;
+let pendingStartTime = null;
+const playbackRequest = TouchzoukUI.playbackRequest();
 
 const setVolume = (value) => {
   audio.volume = Number(value);
@@ -28,7 +33,7 @@ setVolume(volume.value);
 volume.addEventListener("input", () => setVolume(volume.value));
 
 TouchzoukUI.bindPointerShine(document.querySelectorAll(
-  ".site-nav a, .social-nav a, .hero-logo, .play-button, .celestial-button, .book-button, .about-copy .text-link, .event-body a, .contact-details a, footer a",
+  ".site-nav a, .social-nav a, .hero-logo, .play-button, .featured-actions .icon-control, .celestial-button, .book-button, .about-copy .text-link, .event-body a, .contact-details a, footer a",
 ));
 
 const formatTime = (seconds) => {
@@ -39,6 +44,17 @@ const formatTime = (seconds) => {
   const clock = `${String(minutes).padStart(2, "0")}:${String(remainingSeconds).padStart(2, "0")}`;
   return hours ? `${hours}:${clock}` : clock;
 };
+
+TouchzoukUI.bindTrackSharing({
+  button: shareButton,
+  seeker: seek.parentElement,
+  seekSurface: waveform,
+  status: shareStatus,
+  getTrackID: () => currentItem?.id,
+  getCurrentTime: () => audio.currentTime,
+  getDuration: () => audio.duration,
+  formatTime,
+});
 
 let bars = [];
 const paintWaveform = () => {
@@ -82,28 +98,69 @@ const renderWaveform = (source = waveformSource) => {
 };
 renderWaveform();
 
+const findRequestedItem = async (id) => {
+  const catalogs = await Promise.all(["set", "song"].map(async (kind) => {
+    try {
+      const response = await fetch(`/api/media?kind=${kind}`);
+      if (!response.ok) return { failed: true, items: [] };
+      return { failed: false, items: (await response.json()).items || [] };
+    } catch (error) {
+      console.error(`Could not load ${kind} catalog`, error);
+      return { failed: true, items: [] };
+    }
+  }));
+  return {
+    failed: catalogs.some((catalog) => catalog.failed),
+    item: catalogs.flatMap((catalog) => catalog.items).find((item) => item.id === id) || null,
+  };
+};
+
+const loadItem = async (item, requested) => {
+  currentItem = item;
+  featuredTitle = item.title;
+  audio.src = item.audio_url;
+  const cover = document.querySelector("[data-featured-cover]");
+  cover.src = item.cover_url;
+  cover.alt = `${item.title} cover`;
+  TouchzoukUI.applyCoverCrop(cover, item);
+  document.querySelector("[data-featured-title]").textContent = item.title;
+  document.querySelector("[data-featured-kicker]").textContent = requested
+    ? (item.kind === "song" ? "Song" : (item.event_name || "DJ set"))
+    : (item.event_name ? `Featured set · ${item.event_name}` : "Featured set");
+  document.querySelector("[data-featured-subtitle]").textContent = item.subtitle || item.played_at || "Sound Atlas";
+  playButton.setAttribute("aria-label", `Play ${item.title}`);
+  seek.setAttribute("aria-label", `Seek through ${item.title}`);
+  shareButton.disabled = false;
+  try {
+    const waveResponse = await fetch(item.waveform_url, { cache: "no-cache" });
+    if (waveResponse.ok) renderWaveform((await waveResponse.json()).points || []);
+  } catch (error) {
+    console.error("Could not load featured waveform", error);
+  }
+};
+
 const loadFeatured = async () => {
   try {
+    const requested = playbackRequest.trackID
+      ? await findRequestedItem(playbackRequest.trackID)
+      : { failed: false, item: null };
+    if (playbackRequest.trackID && !requested.item) {
+      document.querySelector("[data-featured-title]").textContent = requested.failed ? "Could not load track" : "Track unavailable";
+      document.querySelector("[data-featured-subtitle]").textContent = requested.failed
+        ? "Please try this shared link again"
+        : "This shared track is no longer in the catalog";
+      playButton.disabled = true;
+      return;
+    }
+    if (requested.item) {
+      pendingStartTime = playbackRequest.seconds;
+      await loadItem(requested.item, true);
+      return;
+    }
     const response = await fetch("/api/featured");
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const item = await response.json();
-    featuredTitle = item.title;
-    audio.src = item.audio_url;
-    const cover = document.querySelector("[data-featured-cover]");
-    cover.src = item.cover_url;
-    cover.alt = `${item.title} cover`;
-    TouchzoukUI.applyCoverCrop(cover, item);
-    document.querySelector("[data-featured-title]").textContent = item.title;
-    document.querySelector("[data-featured-kicker]").textContent = item.event_name ? `Featured set · ${item.event_name}` : "Featured set";
-    document.querySelector("[data-featured-subtitle]").textContent = item.subtitle || item.played_at || "Sound Atlas";
-    playButton.setAttribute("aria-label", `Play ${item.title}`);
-    seek.setAttribute("aria-label", `Seek through ${item.title}`);
-    try {
-      const waveResponse = await fetch(item.waveform_url, { cache: "no-cache" });
-      if (waveResponse.ok) renderWaveform((await waveResponse.json()).points || []);
-    } catch (error) {
-      console.error("Could not load featured waveform", error);
-    }
+    await loadItem(item, false);
   } catch (error) {
     document.querySelector("[data-featured-title]").textContent = "No featured set";
     document.querySelector("[data-featured-subtitle]").textContent = "Open Sound Atlas to explore the catalog";
@@ -127,6 +184,10 @@ const setMenuOpen = (open) => {
 };
 
 audio.addEventListener("loadedmetadata", () => {
+  if (pendingStartTime !== null) {
+    audio.currentTime = Math.min(pendingStartTime, audio.duration);
+    pendingStartTime = null;
+  }
   duration.textContent = formatTime(audio.duration);
   paintProgress();
 });

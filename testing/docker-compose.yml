@@ -10,6 +10,7 @@ services:
       - "127.0.0.1:8000:8080"
     volumes:
       - ./config.demo.yaml:/app/config.yaml:ro
+      - ../site:/app/site:ro
       - touchzouk-demo-data:/data
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8080/healthz"]

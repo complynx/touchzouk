@@ -139,6 +139,7 @@
   .player-topline { align-items: start; }
   .now-copy { padding-top: .1rem; }
   .now-copy strong { max-width: 12rem; font-size: .72rem; }
+  .player-topline { gap: .4rem; }
   .now-controls { position: absolute; right: .65rem; bottom: 3.6rem; left: .65rem; z-index: 2; justify-content: center; gap: .25rem; }
   .now-controls .icon-control { width: 2.75rem; height: 2.75rem; flex-basis: 2.75rem; }
   .now-controls .play-control { width: 2.9rem; height: 2.9rem; flex-basis: 2.9rem; }
@@ -155,6 +156,10 @@
   .card-subtitle { font-size: .75rem; }
   .card-meta { font-size: .75rem; }
   .now-controls { gap: .15rem; }
+  .now-controls .icon-control { width: 2.5rem; height: 2.5rem; flex-basis: 2.5rem; }
+  .now-controls .play-control { width: 2.65rem; height: 2.65rem; flex-basis: 2.65rem; }
+  .now-controls .volume-control { width: 4.2rem; }
+  .now-controls .volume-control input { width: 2.7rem; }
 }
 
 @media (max-width: 340px) {

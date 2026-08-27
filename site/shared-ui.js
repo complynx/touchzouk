@@ -94,7 +94,7 @@
     let activePointerId = null;
     const seekFromPointer = (event) => onSeek(pointerRatio(event, surface));
     input.addEventListener("pointerdown", (event) => {
-      if (activePointerId !== null) return;
+      if (event.button !== 0 || activePointerId !== null) return;
       activePointerId = event.pointerId;
       onSeekStart?.();
       input.setPointerCapture(event.pointerId);
@@ -117,5 +117,178 @@
     input.addEventListener("input", () => { if (activePointerId === null) onSeek(Number(input.value) / 1000); });
   }
 
-  window.TouchzoukUI = { applyCoverCrop, bindPointerShine, bindSeeker, coverValues, createLocationLink, pointerRatio, rebinWaveform, waveformHoverStyle };
+  function playbackRequest(search = window.location.search) {
+    const parameters = new URLSearchParams(search);
+    const trackID = (parameters.get("track") || "").trim();
+    const parsedTime = Number(parameters.get("t"));
+    const seconds = Number.isFinite(parsedTime) && parsedTime > 0 ? Math.floor(parsedTime) : 0;
+    return { trackID, seconds };
+  }
+
+  function trackURL(trackID, seconds = 0) {
+    const url = new URL(window.location.pathname, window.location.origin);
+    url.searchParams.set("track", trackID);
+    const wholeSeconds = Math.max(0, Math.floor(Number(seconds) || 0));
+    if (wholeSeconds) url.searchParams.set("t", String(wholeSeconds));
+    return url.href;
+  }
+
+  async function copyText(value) {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return;
+    }
+    const input = document.createElement("textarea");
+    input.value = value;
+    input.style.position = "fixed";
+    input.style.left = "-10000px";
+    document.body.append(input);
+    input.select();
+    const copied = document.execCommand("copy");
+    input.remove();
+    if (!copied) throw new Error("Clipboard unavailable");
+  }
+
+  function bindTrackSharing({
+    button,
+    seeker,
+    seekSurface = seeker,
+    status,
+    getTrackID,
+    getCurrentTime,
+    getDuration,
+    formatTime,
+  }) {
+    const menu = document.createElement("div");
+    const linkButton = document.createElement("button");
+    const timeButton = document.createElement("button");
+    const toast = document.createElement("div");
+    let menuSeconds = 0;
+    let closeTimer = 0;
+    let toastTimer = 0;
+
+    menu.className = "track-share-menu";
+    menu.hidden = true;
+    menu.setAttribute("role", "group");
+    menu.setAttribute("aria-label", "Share options");
+    linkButton.type = "button";
+    linkButton.textContent = "Copy link";
+    timeButton.type = "button";
+    menu.append(linkButton, timeButton);
+    toast.className = "track-share-toast";
+    toast.hidden = true;
+    toast.textContent = "link copied";
+    toast.setAttribute("aria-hidden", "true");
+    document.body.append(menu, toast);
+    button.setAttribute("aria-expanded", "false");
+
+    const setStatus = (message) => {
+      if (status) status.textContent = message;
+    };
+    const closeMenu = () => {
+      const menuHadFocus = menu.contains(document.activeElement);
+      window.clearTimeout(closeTimer);
+      menu.hidden = true;
+      button.setAttribute("aria-expanded", "false");
+      if (menuHadFocus) button.focus({ preventScroll: true });
+    };
+    const positionMenu = (left, top) => requestAnimationFrame(() => {
+      const edge = 8;
+      const boundedLeft = Math.max(edge, Math.min(left, window.innerWidth - menu.offsetWidth - edge));
+      const boundedTop = Math.max(edge, Math.min(top, window.innerHeight - menu.offsetHeight - edge));
+      menu.style.left = `${boundedLeft}px`;
+      menu.style.top = `${boundedTop}px`;
+    });
+    const showToast = (action) => {
+      const bounds = action.getBoundingClientRect();
+      toast.hidden = false;
+      window.clearTimeout(toastTimer);
+      requestAnimationFrame(() => {
+        const edge = 8;
+        const gap = 8;
+        const centeredLeft = bounds.left + (bounds.width - toast.offsetWidth) / 2;
+        const above = bounds.top - toast.offsetHeight - gap;
+        const top = above >= edge ? above : bounds.bottom + gap;
+        toast.style.left = `${Math.max(edge, Math.min(centeredLeft, window.innerWidth - toast.offsetWidth - edge))}px`;
+        toast.style.top = `${Math.min(top, window.innerHeight - toast.offsetHeight - edge)}px`;
+      });
+      toastTimer = window.setTimeout(() => { toast.hidden = true; }, 1800);
+    };
+    const openMenu = (seconds, left, top, includeLink) => {
+      menuSeconds = Math.max(0, Math.floor(seconds));
+      linkButton.hidden = !includeLink;
+      timeButton.hidden = menuSeconds < 1;
+      timeButton.textContent = `Copy link from ${formatTime(menuSeconds)}`;
+      menu.hidden = false;
+      button.setAttribute("aria-expanded", "true");
+      positionMenu(left, top);
+      window.clearTimeout(closeTimer);
+      closeTimer = window.setTimeout(closeMenu, 10000);
+      (includeLink ? linkButton : timeButton).focus({ preventScroll: true });
+    };
+    const copyAt = async (seconds, action) => {
+      const trackID = getTrackID();
+      if (!trackID) return false;
+      try {
+        await copyText(trackURL(trackID, seconds));
+        setStatus(seconds ? `Link from ${formatTime(seconds)} copied` : "Track link copied");
+        showToast(action);
+        return true;
+      } catch (error) {
+        setStatus("Could not copy link");
+        console.error(error);
+        return false;
+      }
+    };
+
+    button.addEventListener("click", async () => {
+      if (!await copyAt(0, button)) return;
+      const seconds = Math.floor(getCurrentTime());
+      if (seconds < 1) {
+        closeMenu();
+        return;
+      }
+      const bounds = button.getBoundingClientRect();
+      openMenu(seconds, bounds.left, bounds.bottom + 6, false);
+    });
+    linkButton.addEventListener("click", async () => {
+      await copyAt(0, linkButton);
+      closeMenu();
+    });
+    timeButton.addEventListener("click", async () => {
+      await copyAt(menuSeconds, timeButton);
+      closeMenu();
+    });
+    seeker.addEventListener("contextmenu", (event) => {
+      if (!getTrackID()) return;
+      const duration = getDuration();
+      const seconds = Number.isFinite(duration) && duration > 0
+        ? Math.floor(pointerRatio(event, seekSurface) * duration)
+        : 0;
+      event.preventDefault();
+      openMenu(seconds, event.clientX, event.clientY, true);
+    });
+    document.addEventListener("pointerdown", (event) => {
+      if (menu.hidden || menu.contains(event.target) || button.contains(event.target)) return;
+      closeMenu();
+    }, true);
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape" || menu.hidden) return;
+      closeMenu();
+    });
+  }
+
+  window.TouchzoukUI = {
+    applyCoverCrop,
+    bindPointerShine,
+    bindSeeker,
+    bindTrackSharing,
+    coverValues,
+    createLocationLink,
+    playbackRequest,
+    pointerRatio,
+    rebinWaveform,
+    trackURL,
+    waveformHoverStyle,
+  };
 })();

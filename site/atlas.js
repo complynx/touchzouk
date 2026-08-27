@@ -10,6 +10,7 @@ const state = {
   seeking: false,
   seekWasPlaying: false,
   waveformRequest: null,
+  pendingStart: null,
   rebinned: new Map(),
   hoverWaveformRatio: null,
   originalOrder: { set: null, song: null },
@@ -25,6 +26,8 @@ const canvas = document.querySelector("[data-player-waveform]");
 const context = canvas.getContext("2d");
 const repeatButton = document.querySelector("[data-repeat]");
 const shuffleButton = document.querySelector("[data-random]");
+const shareButton = document.querySelector("[data-share]");
+const shareStatus = document.querySelector("[data-share-status]");
 const volumePickers = [...document.querySelectorAll("[data-volume]")];
 const menuButton = document.querySelector(".menu-toggle");
 const menu = document.querySelector(".site-nav");
@@ -34,6 +37,7 @@ const catalogStatus = document.querySelector("[data-catalog-status]");
 const waveCanvas = document.querySelector(".wave-canvas");
 const skyCanvas = document.querySelector("[data-atlas-sky]");
 const fallbackWaveform = Array.from({ length: 180 }, (_, index) => .2 + Math.abs(Math.sin(index * .47) * Math.cos(index * .09) * .65));
+const playbackRequest = TouchzoukUI.playbackRequest();
 let waveformFrame = 0;
 
 function startAtlasSky() {
@@ -561,6 +565,16 @@ const formatDuration = (seconds) => {
   return `${hours ? `${hours}:` : ""}${String(minutes).padStart(2, "0")}:${String(rest).padStart(2, "0")}`;
 };
 
+TouchzoukUI.bindTrackSharing({
+  button: shareButton,
+  seeker: waveCanvas,
+  status: shareStatus,
+  getTrackID: () => state.current?.id,
+  getCurrentTime: () => audio.currentTime,
+  getDuration: () => audio.duration,
+  formatTime: formatDuration,
+});
+
 const setText = (selector, value, root = document) => {
   const element = root.querySelector(selector);
   if (element) element.textContent = value || "";
@@ -638,9 +652,11 @@ async function loadCatalog(kind) {
     const { items } = await response.json();
     state.catalog[kind] = items;
     renderCatalog(kind);
+    return true;
   } catch (error) {
     document.querySelector(`[data-list="${kind}"]`).innerHTML = '<div class="atlas-empty">Could not load this list.</div>';
     console.error(error);
+    return false;
   }
 }
 
@@ -659,6 +675,7 @@ async function selectItem(item, autoplay = false) {
   state.startingPlayback = false;
   const request = new AbortController();
   state.waveformRequest = request;
+  if (state.pendingStart?.trackID !== item.id) state.pendingStart = null;
   state.current = item;
   state.category = item.kind;
   state.waveform = [];
@@ -671,6 +688,7 @@ async function selectItem(item, autoplay = false) {
   seek.setAttribute("aria-valuetext", `00:00 of ${itemDuration}`);
   playerIdle.hidden = true;
   playerLoaded.hidden = false;
+  shareButton.disabled = false;
   const cover = document.querySelector("[data-now-cover]");
   cover.src = item.cover_url;
   cover.alt = `${item.title} cover`;
@@ -934,7 +952,13 @@ function paintProgress() {
   requestWaveformDraw();
 }
 audio.addEventListener("timeupdate", paintProgress);
-audio.addEventListener("loadedmetadata", () => { setText("[data-duration]", formatDuration(audio.duration)); drawWaveform(); });
+audio.addEventListener("loadedmetadata", () => {
+  const pending = state.pendingStart;
+  state.pendingStart = null;
+  if (pending?.trackID === state.current?.id) audio.currentTime = Math.min(pending.seconds, audio.duration);
+  setText("[data-duration]", formatDuration(audio.duration));
+  paintProgress();
+});
 audio.addEventListener("ended", () => {
   if (state.repeat === 2) { audio.currentTime = 0; play(); return; }
   const item = adjacentItem(1);
@@ -990,5 +1014,25 @@ async function preloadFeatured() {
   }
 }
 
+async function preloadRequested(catalogsLoaded) {
+  if (playbackRequest.trackID) {
+    const item = [...state.catalog.set, ...state.catalog.song]
+      .find((candidate) => candidate.id === playbackRequest.trackID);
+    if (item) {
+      state.pendingStart = { trackID: item.id, seconds: playbackRequest.seconds };
+      setActiveCategory(item.kind);
+      await selectItem(item);
+      return;
+    }
+    const failed = catalogsLoaded.includes(false);
+    playerIdle.querySelector("strong").textContent = failed ? "Could not load track" : "Track unavailable";
+    playerIdle.querySelector("small").textContent = failed
+      ? "Please try this shared link again"
+      : "This shared track is no longer in the catalog";
+    return;
+  }
+  await preloadFeatured();
+}
+
 if (["#sets", "#songs"].includes(location.hash)) setActiveCategory(location.hash === "#songs" ? "song" : "set");
-Promise.all([loadCatalog("set"), loadCatalog("song")]).then(preloadFeatured);
+Promise.all([loadCatalog("set"), loadCatalog("song")]).then(preloadRequested);

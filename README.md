@@ -21,6 +21,9 @@ creates four varied sets and six songs using bundled public-domain preview media
 for local UI testing; it is not intended for production. Audio provenance is
 documented in `testing/audio/README.md`.
 
+Player links accept `?track=<media-id>&t=<whole-seconds>`. `track` uses the
+stable catalog ID; `t` is optional and starts the player at that position.
+
 For the Docker demo used by the browser test loop:
 
 ```bash
