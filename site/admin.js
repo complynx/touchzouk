@@ -22,6 +22,13 @@ const state = {
   previewSeeking: false,
   previewSeekWasPlaying: false,
   previewIntent: 0,
+  previewView: { start: 0, end: 1 },
+  previewSticky: false,
+  timedContent: { entries: [], text: "", markers: [], pauses: [] },
+  lyricsCursor: 0,
+  lyricsCursorPauseCount: 0,
+  lyricsSelection: { start: 0, end: 0 },
+  lyricsPlaybackOffset: -1,
 };
 
 const form = document.querySelector("#media-form");
@@ -38,6 +45,7 @@ const coverProgress = document.querySelector("[data-cover-progress]");
 const coverPreview = document.querySelector("[data-cover-preview]");
 const coverInput = document.querySelector("[data-cover-input]");
 const coverTools = document.querySelector("[data-cover-tools]");
+const coverUpload = document.querySelector("[data-cover-upload]");
 const setFields = document.querySelector("[data-set-fields]");
 const cancelEdit = document.querySelector("[data-cancel-edit]");
 const editorTitle = document.querySelector("#editor-title");
@@ -52,11 +60,28 @@ const previewCurrent = document.querySelector("[data-preview-current]");
 const previewDuration = document.querySelector("[data-preview-duration]");
 const deleteDialog = document.querySelector("[data-delete-dialog]");
 const tagSuggestions = document.querySelector("[data-tag-suggestions]");
+const previewCues = document.querySelector("[data-preview-cues]");
+const previewNavigator = document.querySelector("[data-preview-navigator]");
+const timelineWindow = document.querySelector("[data-timeline-window]");
+const setTimedFields = document.querySelector("[data-set-timed-fields]");
+const songTimedFields = document.querySelector("[data-song-timed-fields]");
+const timedHeading = document.querySelector("[data-timed-heading]");
+const shiftFollowing = document.querySelector("[data-shift-following]");
+const songListInput = document.querySelector("[data-song-list-input]");
+const timedList = document.querySelector("[data-timed-list]");
+const clearSongs = document.querySelector("[data-clear-songs]");
+const lyricsEditor = document.querySelector("[data-lyrics-editor]");
+const playlistDrop = document.querySelector("[data-playlist-drop]");
+const playlistInput = document.querySelector("[data-playlist-input]");
+const timelineFollow = document.querySelector("[data-timeline-follow]");
+const PAUSE_SYMBOL = "𝄺";
 let mutationQueue = Promise.resolve();
 let catalogLoadSequence = 0;
 let editorSavePending = false;
 let catalogOrderPending = false;
 let previewWaveformFrame = 0;
+let previewPlaybackFrame = 0;
+let lyricsComposing = false;
 const activeUploads = { audio: null, cover: null };
 
 function enqueueMutation(url, options) {
@@ -73,6 +98,7 @@ function setEditorBusy(busy) {
   form.querySelectorAll("input, textarea, select, button").forEach((control) => {
     if (control !== cancelEdit) control.disabled = busy;
   });
+  lyricsEditor.contentEditable = String(!busy);
 }
 
 const formatDuration = (seconds) => {
@@ -82,6 +108,582 @@ const formatDuration = (seconds) => {
   const rest = total % 60;
   return `${hours ? `${hours}:` : ""}${String(minutes).padStart(2, "0")}:${String(rest).padStart(2, "0")}`;
 };
+
+function cloneTimedContent(content = {}) {
+  return {
+    entries: (content.entries || []).map((entry) => ({ text: String(entry.text || ""), time_ms: Number(entry.time_ms) || 0 })),
+    text: String(content.text || ""),
+    markers: (content.markers || []).map((marker) => ({ offset: Number(marker.offset) || 0, time_ms: Number(marker.time_ms) || 0 })),
+    pauses: [...(content.pauses || [])].map((offset) => Number(offset) || 0),
+  };
+}
+
+function previewDurationSeconds() {
+  if (Number.isFinite(previewAudio.duration) && previewAudio.duration > 0) return previewAudio.duration;
+  return state.audioUpload?.duration_seconds || state.editing?.duration_seconds || 0;
+}
+
+function formatMarkerTime(milliseconds) {
+  const total = Math.max(0, Math.round(milliseconds || 0));
+  const hours = Math.floor(total / 3_600_000);
+  const minutes = Math.floor(total % 3_600_000 / 60_000);
+  const seconds = Math.floor(total % 60_000 / 1000);
+  const fraction = total % 1000;
+  return `${hours ? `${hours}:` : ""}${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${String(fraction).padStart(3, "0")}`;
+}
+
+function lyricCaptionPart(value, fromEnd) {
+  const runes = Array.from(fromEnd ? value.trimStart() : value.trimEnd());
+  if (runes.length <= 12) return runes.join("");
+  const clipped = (fromEnd ? runes.slice(-12) : runes.slice(0, 12)).join("");
+  return fromEnd
+    ? clipped.replace(/^\S+\s+/, "").trimStart()
+    : clipped.replace(/\s+\S*$/, "").trimEnd();
+}
+
+function lyricPauseCounts() {
+  const pauseCounts = new Map();
+  state.timedContent.pauses.forEach((offset) => pauseCounts.set(offset, (pauseCounts.get(offset) || 0) + 1));
+  return pauseCounts;
+}
+
+function lyricMarkerCaption(marker, markerIndex, markers, pauseCounts = lyricPauseCounts(), runes = Array.from(state.timedContent.text)) {
+  const offset = Math.max(0, Math.min(runes.length, marker.offset));
+  let lineStart = offset;
+  while (lineStart > 0 && offset - lineStart < 24 && runes[lineStart - 1] !== "\n") lineStart -= 1;
+  let lineEnd = offset;
+  while (lineEnd < runes.length && lineEnd - offset < 24 && runes[lineEnd] !== "\n") lineEnd += 1;
+  const pausesAtOffset = pauseCounts.get(offset) || 0;
+  const markerAtOffsetIndex = markers.slice(0, markerIndex).filter((candidate) => candidate.offset === offset).length;
+  const markerAfterPause = pausesAtOffset && markerAtOffsetIndex > 0;
+  const text = (start, end, skipFirstPause = false) => {
+    const result = [];
+    for (let index = start; index < end; index += 1) {
+      if (!skipFirstPause || index !== start) result.push(PAUSE_SYMBOL.repeat(pauseCounts.get(index) || 0));
+      result.push(runes[index]);
+    }
+    return result.join("");
+  };
+  const pause = PAUSE_SYMBOL.repeat(pausesAtOffset);
+  const before = `${text(lineStart, offset)}${markerAfterPause ? pause : ""}`;
+  const after = `${markerAfterPause ? "" : pause}${text(offset, lineEnd, true)}`;
+  return `${lyricCaptionPart(before, true)}|${lyricCaptionPart(after, false)}`;
+}
+
+function timelineCueLabels(marker, markerIndex, markers, pauseCounts, runes) {
+  const time = formatMarkerTime(marker.time_ms);
+  if (form.elements.kind.value === "set") {
+    const title = `${marker.text} · ${time}`;
+    return { title, ariaLabel: title };
+  }
+  const title = lyricMarkerCaption(marker, markerIndex, markers, pauseCounts, runes);
+  return { title, ariaLabel: `${title}, ${time}` };
+}
+
+function activeTimelineMarkers() {
+  return form.elements.kind.value === "set" ? state.timedContent.entries : state.timedContent.markers;
+}
+
+function collapsedLyricRanges(markers = state.timedContent.markers) {
+  const sorted = [...markers].sort((left, right) => left.offset - right.offset || left.time_ms - right.time_ms);
+  const ranges = [];
+  for (let index = 0; index < sorted.length - 1;) {
+    const left = sorted[index];
+    let end = index;
+    while (end + 1 < sorted.length && sorted[end + 1].time_ms === left.time_ms && sorted[end + 1].offset > sorted[end].offset) end += 1;
+    if (end > index) ranges.push({ start: left.offset, end: sorted[end].offset, time_ms: left.time_ms, markers: sorted.slice(index, end + 1) });
+    index = Math.max(index + 1, end + 1);
+  }
+  return ranges;
+}
+
+function editorNodeUnits(node) {
+  if (node.nodeType === Node.TEXT_NODE) return Array.from(node.data).filter((rune) => rune !== PAUSE_SYMBOL).length;
+  if (node.nodeType !== Node.ELEMENT_NODE) return 0;
+  if (node.matches(".lyrics-time-mark, .lyrics-pause-mark, .lyrics-play-cursor")) return 0;
+  if (node.tagName === "BR") return 1;
+  return [...node.childNodes].reduce((total, child) => total + editorNodeUnits(child), 0);
+}
+
+function editorPauseUnits(node) {
+  if (node.nodeType === Node.TEXT_NODE) return Array.from(node.data).filter((rune) => rune === PAUSE_SYMBOL).length;
+  if (node.nodeType !== Node.ELEMENT_NODE) return 0;
+  if (node.matches(".lyrics-pause-mark")) return 1;
+  if (node.matches(".lyrics-time-mark, .lyrics-play-cursor")) return 0;
+  return [...node.childNodes].reduce((total, child) => total + editorPauseUnits(child), 0);
+}
+
+function editorPauseCountFromPoint(target, targetOffset) {
+  const visit = (node) => {
+    if (node === target) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        return { found: true, pauses: Array.from(node.data.slice(0, targetOffset)).filter((rune) => rune === PAUSE_SYMBOL).length };
+      }
+      return { found: true, pauses: [...node.childNodes].slice(0, targetOffset).reduce((total, child) => total + editorPauseUnits(child), 0) };
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE || node.matches(".lyrics-time-mark, .lyrics-play-cursor")) {
+      return { found: false, pauses: editorPauseUnits(node) };
+    }
+    let pauses = 0;
+    for (const child of node.childNodes) {
+      const result = visit(child);
+      if (result.found) return { found: true, pauses: pauses + result.pauses };
+      pauses += result.pauses;
+    }
+    return { found: false, pauses };
+  };
+  return visit(lyricsEditor).pauses;
+}
+
+function editorOffsetFromPoint(target, targetOffset) {
+  const visit = (node) => {
+    if (node === target) {
+      if (node.nodeType === Node.TEXT_NODE) return { found: true, offset: Array.from(node.data.slice(0, targetOffset)).filter((rune) => rune !== PAUSE_SYMBOL).length };
+      return { found: true, offset: [...node.childNodes].slice(0, targetOffset).reduce((total, child) => total + editorNodeUnits(child), 0) };
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE || node.matches(".lyrics-time-mark, .lyrics-pause-mark, .lyrics-play-cursor")) return { found: false, offset: editorNodeUnits(node) };
+    let total = 0;
+    for (const child of node.childNodes) {
+      const result = visit(child);
+      if (result.found) return { found: true, offset: total + result.offset };
+      total += result.offset;
+    }
+    return { found: false, offset: total };
+  };
+  return visit(lyricsEditor).offset;
+}
+
+function currentLyricsSelection() {
+  const selection = window.getSelection();
+  if (!selection?.rangeCount || !lyricsEditor.contains(selection.anchorNode) || !lyricsEditor.contains(selection.focusNode)) return state.lyricsSelection;
+  const anchor = editorOffsetFromPoint(selection.anchorNode, selection.anchorOffset);
+  const focus = editorOffsetFromPoint(selection.focusNode, selection.focusOffset);
+  const focusPauses = editorPauseCountFromPoint(selection.focusNode, selection.focusOffset);
+  const range = { start: Math.min(anchor, focus), end: Math.max(anchor, focus) };
+  state.lyricsCursor = focus;
+  state.lyricsCursorPauseCount = focusPauses;
+  state.lyricsSelection = range;
+  return range;
+}
+
+function currentLyricsCursor() {
+  currentLyricsSelection();
+  return { offset: state.lyricsCursor, pauseCount: state.lyricsCursorPauseCount };
+}
+
+function updateLyricSectionAction() {
+  const button = document.querySelector("[data-toggle-lyric-section]");
+  const selection = state.lyricsSelection;
+  const inside = collapsedLyricRanges().some((range) => selection.start >= range.start && selection.end <= range.end);
+  button.textContent = inside ? "Reveal section" : "Collapse selection";
+}
+
+function editorPointAtOffset(targetOffset, targetPauseCount = lyricPauseCountBeforeOffset(targetOffset)) {
+  let remaining = Math.max(0, targetOffset);
+  let remainingPauses = Math.max(0, targetPauseCount);
+  const visit = (node) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const runes = Array.from(node.data);
+      let units = 0;
+      for (let codeUnit = 0; codeUnit < node.data.length; codeUnit += 1) {
+        if (units >= remaining && !remainingPauses) return { node, offset: codeUnit };
+        const rune = String.fromCodePoint(node.data.codePointAt(codeUnit));
+        if (rune !== PAUSE_SYMBOL) units += 1;
+        if (rune.length === 2) codeUnit += 1;
+      }
+      if (units >= remaining && !remainingPauses) return { node, offset: node.data.length };
+      remaining -= units;
+      return null;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE || node.matches(".lyrics-time-mark, .lyrics-play-cursor")) return null;
+    if (node.matches(".lyrics-pause-mark")) {
+      if (remainingPauses) remainingPauses -= 1;
+      return null;
+    }
+    if (node.tagName === "BR") {
+      if (!remaining) return { node: node.parentNode, offset: [...node.parentNode.childNodes].indexOf(node) };
+      remaining -= 1;
+      return null;
+    }
+    for (let index = 0; index < node.childNodes.length; index += 1) {
+      if (!remaining && !remainingPauses) return { node, offset: index };
+      const child = node.childNodes[index];
+      const point = visit(child);
+      if (point) return point;
+    }
+    if (!remaining && !remainingPauses) return { node, offset: node.childNodes.length };
+    return null;
+  };
+  return visit(lyricsEditor) || { node: lyricsEditor, offset: lyricsEditor.childNodes.length };
+}
+
+function restoreLyricsSelection(start, end = start, endPauseCount = lyricPauseCountBeforeOffset(end)) {
+  const selection = window.getSelection();
+  if (!selection) return;
+  const range = document.createRange();
+  const startPoint = editorPointAtOffset(start, start === end ? endPauseCount : lyricPauseCountBeforeOffset(start));
+  const endPoint = editorPointAtOffset(end, endPauseCount);
+  range.setStart(startPoint.node, startPoint.offset);
+  range.setEnd(endPoint.node, endPoint.offset);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+function readLyricsEditor() {
+  const runes = [];
+  const markers = [];
+  const pauses = [];
+  const visit = (node) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      Array.from(node.data).forEach((rune) => {
+        if (rune === PAUSE_SYMBOL) pauses.push(runes.length);
+        else runes.push(rune);
+      });
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+    if (node.matches(".lyrics-time-mark")) {
+      markers.push({ offset: runes.length, time_ms: Number(node.dataset.timeMs) || 0 });
+      return;
+    }
+    if (node.matches(".lyrics-pause-mark")) {
+      pauses.push(runes.length);
+      return;
+    }
+    if (node.matches(".lyrics-play-cursor")) return;
+    if (node.tagName === "BR") {
+      runes.push("\n");
+      return;
+    }
+    [...node.childNodes].forEach(visit);
+  };
+  [...lyricsEditor.childNodes].forEach(visit);
+  return { text: runes.join("").replace(/\r\n?/g, "\n"), markers, pauses: [...new Set(pauses)].sort((left, right) => left - right) };
+}
+
+function renderLyricsEditor(preserveSelection = document.activeElement === lyricsEditor) {
+  const text = state.timedContent.text;
+  if (!text) {
+    lyricsEditor.replaceChildren();
+    return;
+  }
+  const selection = preserveSelection ? currentLyricsSelection() : state.lyricsSelection;
+  const cursor = { offset: state.lyricsCursor, pauseCount: state.lyricsCursorPauseCount };
+  const markers = new Map();
+  state.timedContent.markers.forEach((marker) => {
+    const list = markers.get(marker.offset) || [];
+    list.push(marker);
+    markers.set(marker.offset, list);
+  });
+  const pauses = new Map();
+  state.timedContent.pauses.forEach((offset) => pauses.set(offset, (pauses.get(offset) || 0) + 1));
+  const fragment = document.createDocumentFragment();
+  const runes = Array.from(text);
+  const collapsed = collapsedLyricRanges();
+  let parent = fragment;
+  let activeRange = null;
+  const appendMarker = (marker) => {
+    const mark = document.createElement("span");
+    mark.className = "lyrics-time-mark";
+    mark.contentEditable = "false";
+    mark.dataset.timeMs = String(marker.time_ms);
+    mark.title = lyricMarkerCaption(marker, state.timedContent.markers.indexOf(marker), state.timedContent.markers, pauses, runes);
+    parent.append(mark);
+  };
+  for (let offset = 0; offset <= runes.length; offset += 1) {
+    const nextRange = collapsed.find((range) => offset >= range.start && offset < range.end) || null;
+    if (nextRange !== activeRange) {
+      activeRange = nextRange;
+      if (activeRange) {
+        const wrapper = document.createElement("span");
+        wrapper.className = "lyrics-collapsed";
+        wrapper.title = "Collapsed section";
+        fragment.append(wrapper);
+        parent = wrapper;
+      } else parent = fragment;
+    }
+    const offsetMarkers = markers.get(offset) || [];
+    const pauseCount = pauses.get(offset) || 0;
+    if (pauseCount) offsetMarkers.slice(0, 1).forEach(appendMarker);
+    else offsetMarkers.forEach(appendMarker);
+    for (let index = 0; index < pauseCount; index += 1) {
+      const pause = document.createElement("span");
+      pause.className = "lyrics-pause-mark";
+      pause.contentEditable = "false";
+      pause.title = "Pause";
+      pause.textContent = PAUSE_SYMBOL;
+      parent.append(pause);
+    }
+    if (pauseCount) offsetMarkers.slice(1).forEach(appendMarker);
+    if (state.lyricsPlaybackOffset === offset) {
+      const cursor = document.createElement("span");
+      cursor.className = "lyrics-play-cursor";
+      cursor.contentEditable = "false";
+      cursor.setAttribute("aria-hidden", "true");
+      parent.append(cursor);
+    }
+    if (offset < runes.length) parent.append(document.createTextNode(runes[offset]));
+  }
+  lyricsEditor.replaceChildren(fragment);
+  if (preserveSelection) {
+    if (selection.start === selection.end) restoreLyricsSelection(cursor.offset, cursor.offset, cursor.pauseCount);
+    else restoreLyricsSelection(selection.start, selection.end);
+  }
+  updateLyricSectionAction();
+}
+
+function renderTimedList() {
+  clearSongs.disabled = !state.timedContent.entries.length;
+  if (!state.timedContent.entries.length) {
+    timedList.innerHTML = '<p class="timed-empty">No songs yet.</p>';
+    return;
+  }
+  const rows = [];
+  state.timedContent.entries.forEach((entry, index) => {
+    const row = document.createElement("div");
+    const time = document.createElement("time");
+    const input = document.createElement("input");
+    const remove = document.createElement("button");
+    row.className = "timed-entry";
+    time.textContent = formatMarkerTime(entry.time_ms);
+    input.value = entry.text;
+    input.maxLength = 180;
+    input.setAttribute("aria-label", `Song ${index + 1} name`);
+    input.addEventListener("input", () => { entry.text = input.value; });
+    remove.type = "button";
+    remove.className = "quiet-button";
+    remove.textContent = "−";
+    remove.setAttribute("aria-label", `Remove song ${index + 1}`);
+    remove.addEventListener("click", () => {
+      state.timedContent.entries.splice(index, 1);
+      renderTimedEditor();
+    });
+    row.append(time, input, remove);
+    rows.push(row);
+    const following = state.timedContent.entries[index + 1];
+    if (!following) return;
+    const insertRow = document.createElement("div");
+    const insert = document.createElement("button");
+    const hasRoom = following.time_ms - entry.time_ms > 1;
+    insertRow.className = "timed-entry-insert";
+    insert.type = "button";
+    insert.textContent = "+";
+    insert.disabled = !hasRoom;
+    insert.setAttribute("aria-label", `Add song between ${index + 1} and ${index + 2}`);
+    insert.title = hasRoom ? "Add song between these markers" : "Markers need at least 2 milliseconds between them";
+    insert.addEventListener("click", () => {
+      const timeMS = entry.time_ms + Math.floor((following.time_ms - entry.time_ms) / 2);
+      state.timedContent.entries.splice(index + 1, 0, { text: "", time_ms: timeMS });
+      renderTimedEditor();
+      timedList.querySelectorAll(".timed-entry input")[index + 1]?.focus();
+    });
+    insertRow.append(insert);
+    rows.push(insertRow);
+  });
+  timedList.replaceChildren(...rows);
+}
+
+function renderTimelineNavigator() {
+  const { start, end } = state.previewView;
+  const trackWidth = previewNavigator.clientWidth;
+  const handleWidth = timelineWindow.querySelector("button")?.getBoundingClientRect().width || 14;
+  const visualWidth = Math.min(trackWidth, Math.max((end - start) * trackWidth, handleWidth * 3));
+  const center = ((start + end) / 2) * trackWidth;
+  timelineWindow.style.left = `${Math.max(0, Math.min(trackWidth - visualWidth, center - visualWidth / 2))}px`;
+  timelineWindow.style.width = `${visualWidth}px`;
+}
+
+function seekPreviewAtClientX(clientX) {
+  const bounds = uploadWaveform.getBoundingClientRect();
+  if (!bounds.width || !previewDurationSeconds()) return;
+  const local = Math.max(0, Math.min(1, (clientX - bounds.left) / bounds.width));
+  const full = state.previewView.start + local * (state.previewView.end - state.previewView.start);
+  previewAudio.currentTime = full * previewDurationSeconds();
+  paintPreviewProgress();
+}
+
+function seekPreviewAtMarker(event, marker) {
+  if (event.detail) seekPreviewAtClientX(event.clientX);
+  else {
+    previewAudio.currentTime = Math.min(marker.time_ms / 1000, previewDurationSeconds());
+    paintPreviewProgress();
+  }
+}
+
+function timelineMarkerGroup(markers, index) {
+  if (form.elements.kind.value !== "song") return { start: index, end: index };
+  let start = index;
+  let end = index;
+  while (start > 0 && markers[start - 1].time_ms === markers[index].time_ms && markers[start - 1].offset !== markers[index].offset) start -= 1;
+  while (end + 1 < markers.length && markers[end + 1].time_ms === markers[index].time_ms && markers[end + 1].offset !== markers[index].offset) end += 1;
+  return { start, end };
+}
+
+function moveTimelineMarker(markers, index, desired, original) {
+  const group = timelineMarkerGroup(markers, index);
+  const minimum = group.start ? markers[group.start - 1].time_ms + 1 : 0;
+  let next = Math.max(minimum, desired);
+  if (!shiftFollowing.checked && group.end + 1 < markers.length) next = Math.min(next, markers[group.end + 1].time_ms - 1);
+  let delta = next - original[group.start];
+  if (shiftFollowing.checked && form.elements.kind.value === "song" && markers.length > 1) {
+    delta = Math.min(delta, original.at(-1) - 1 - original.at(-2));
+  }
+  if (shiftFollowing.checked) {
+    for (let following = group.start; following < markers.length; following += 1) {
+      if (form.elements.kind.value === "song" && following === markers.length - 1) break;
+      markers[following].time_ms = Math.max(0, original[following] + delta);
+    }
+  } else {
+    for (let grouped = group.start; grouped <= group.end; grouped += 1) markers[grouped].time_ms = next;
+  }
+  updateTimelineCuePositions();
+  if (form.elements.kind.value === "set") renderTimedList();
+  else renderLyricsEditor();
+}
+
+function bindTimelineCue(button, marker, index, markers) {
+  button.addEventListener("keydown", (event) => {
+    if (!["Enter", " "].includes(event.key)) return;
+    event.preventDefault();
+    seekPreviewAtMarker(event, marker);
+  });
+  if (button.classList.contains("is-end")) {
+    button.addEventListener("click", (event) => seekPreviewAtMarker(event, marker));
+    return;
+  }
+  button.addEventListener("click", (event) => {
+    if (!event.detail) seekPreviewAtMarker(event, marker);
+  });
+  button.addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+    event.preventDefault();
+    const direction = event.key === "ArrowLeft" ? -1 : 1;
+    const step = event.shiftKey ? 100 : 1000;
+    const original = markers.map((candidate) => candidate.time_ms);
+    moveTimelineMarker(markers, index, marker.time_ms + direction * step, original);
+    renderTimelineCues();
+    previewCues.querySelector(`[data-marker-index="${index}"]`)?.focus();
+  });
+  button.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const startX = event.clientX;
+    const original = markers.map((candidate) => candidate.time_ms);
+    let dragged = false;
+    button.setPointerCapture(event.pointerId);
+    const move = (moveEvent) => {
+      if (moveEvent.pointerId !== event.pointerId) return;
+      if (Math.abs(moveEvent.clientX - startX) >= 3) dragged = true;
+      if (!dragged) return;
+      const bounds = uploadWaveform.getBoundingClientRect();
+      const local = Math.max(0, Math.min(1, (moveEvent.clientX - bounds.left) / bounds.width));
+      const desired = Math.round((state.previewView.start + local * (state.previewView.end - state.previewView.start)) * previewDurationSeconds() * 1000);
+      moveTimelineMarker(markers, index, desired, original);
+    };
+    const finish = (finishEvent) => {
+      if (finishEvent.pointerId !== event.pointerId) return;
+      button.removeEventListener("pointermove", move);
+      button.removeEventListener("pointerup", finish);
+      button.removeEventListener("pointercancel", finish);
+      if (!dragged && finishEvent.type === "pointerup") seekPreviewAtClientX(finishEvent.clientX);
+      renderTimelineCues();
+    };
+    button.addEventListener("pointermove", move);
+    button.addEventListener("pointerup", finish);
+    button.addEventListener("pointercancel", finish);
+  });
+}
+
+function updateTimelineCuePositions() {
+  const markers = activeTimelineMarkers();
+  const pauseCounts = form.elements.kind.value === "song" ? lyricPauseCounts() : null;
+  const lyricRunes = form.elements.kind.value === "song" ? Array.from(state.timedContent.text) : null;
+  const durationMS = previewDurationSeconds() * 1000;
+  const { start, end } = state.previewView;
+  const span = end - start;
+  previewCues.querySelectorAll(".timeline-cue").forEach((button) => {
+    const index = Number(button.dataset.markerIndex);
+    const marker = markers[index];
+    if (!marker || !durationMS) {
+      button.hidden = true;
+      return;
+    }
+    const ratio = Math.min(marker.time_ms, durationMS) / durationMS;
+    button.hidden = ratio < start || ratio > end;
+    button.style.left = `${(ratio - start) / span * 100}%`;
+    const labels = timelineCueLabels(marker, index, markers, pauseCounts, lyricRunes);
+    button.title = labels.title;
+    button.setAttribute("aria-label", labels.ariaLabel);
+  });
+}
+
+function renderTimelineCues() {
+  const markers = activeTimelineMarkers();
+  const pauseCounts = form.elements.kind.value === "song" ? lyricPauseCounts() : null;
+  const lyricRunes = form.elements.kind.value === "song" ? Array.from(state.timedContent.text) : null;
+  const durationMS = previewDurationSeconds() * 1000;
+  if (!durationMS || !markers.length) {
+    previewCues.replaceChildren();
+    return;
+  }
+  const buttons = [];
+  markers.forEach((marker, index) => {
+    const button = document.createElement("button");
+    const isSongEnd = form.elements.kind.value === "song" && index === markers.length - 1 && marker.offset === Array.from(state.timedContent.text).length;
+    button.type = "button";
+    button.className = `timeline-cue${isSongEnd ? " is-end" : ""}`;
+    button.dataset.markerIndex = String(index);
+    button.style.zIndex = marker.time_ms >= durationMS ? String(markers.length - index + 2) : String(index + 2);
+    const labels = timelineCueLabels(marker, index, markers, pauseCounts, lyricRunes);
+    button.title = labels.title;
+    button.setAttribute("aria-label", labels.ariaLabel);
+    bindTimelineCue(button, marker, index, markers);
+    buttons.push(button);
+  });
+  previewCues.replaceChildren(...buttons);
+  updateTimelineCuePositions();
+}
+
+function renderTimedEditor() {
+  renderTimelineNavigator();
+  renderTimelineCues();
+  if (form.elements.kind.value === "set") renderTimedList();
+  else renderLyricsEditor();
+}
+
+function addSongs(lines) {
+  const names = lines.map((line) => line.trim()).filter(Boolean);
+  if (!names.length) return;
+  let time = state.timedContent.entries.length ? state.timedContent.entries.at(-1).time_ms + 180_000 : 0;
+  names.forEach((text) => {
+    state.timedContent.entries.push({ text, time_ms: time });
+    time += 180_000;
+  });
+  songListInput.value = "";
+  renderTimedEditor();
+}
+
+function ensureInitialLyricsMarkers() {
+  const length = Array.from(state.timedContent.text).length;
+  if (!length) return;
+  if (!state.timedContent.markers.some((marker) => marker.offset === 0)) state.timedContent.markers.push({ offset: 0, time_ms: 0 });
+  syncLyricsEndMarker();
+}
+
+function syncLyricsEndMarker(durationSeconds = previewDurationSeconds()) {
+  if (form.elements.kind.value !== "song") return;
+  const length = Array.from(state.timedContent.text).length;
+  const durationMS = Math.round(durationSeconds * 1000);
+  if (!length || !durationMS) return;
+  sortLyricsMarkers();
+  const end = state.timedContent.markers.at(-1);
+  if (end?.offset === length) {
+    // Never pull stored overflow timing backwards; equal existing times can be an intentional collapsed section.
+    end.time_ms = Math.max(end.time_ms, durationMS);
+  } else {
+    state.timedContent.markers.push({ offset: length, time_ms: Math.max(durationMS, (end?.time_ms ?? -1) + 1) });
+  }
+}
 
 function setMessage(text, error = false) {
   message.textContent = text;
@@ -144,10 +746,14 @@ function setKind(kind, guessed = false) {
   const input = form.querySelector(`[name="kind"][value="${kind}"]`);
   if (input) input.checked = true;
   setFields.hidden = kind !== "set";
+  setTimedFields.hidden = kind !== "set";
+  songTimedFields.hidden = kind !== "song";
+  timedHeading.textContent = kind === "set" ? "Set songs" : "Lyrics timing";
   document.querySelector("[data-kind-hint]").textContent = guessed
     ? `${kind === "set" ? "Set" : "Song"} suggested from the uploaded duration. You can switch it.`
     : "12:00 and longer is suggested as a set.";
   renderTagSuggestions(kind);
+  renderTimedEditor();
 }
 
 function selectedTags() {
@@ -210,6 +816,20 @@ function setCoverTransform(position = "50% 50%", zoom = 1) {
   TouchzoukUI.applyCoverCrop(coverPreview, { cover_position: `${values.x}% ${values.y}%`, cover_zoom: values.zoom });
 }
 
+function interpolatedWaveform(source, start, end, count) {
+  if (!source.length || count < 1) return [];
+  if (source.length === 1) return Array.from({ length: count }, () => source[0]);
+  const first = start * (source.length - 1);
+  const last = end * (source.length - 1);
+  return Array.from({ length: count }, (_, index) => {
+    const position = count === 1 ? first : first + (last - first) * index / (count - 1);
+    const left = Math.floor(position);
+    const right = Math.min(source.length - 1, left + 1);
+    const fraction = position - left;
+    return source[left] + (source[right] - source[left]) * fraction;
+  });
+}
+
 function paintPreviewWaveform() {
   const bounds = uploadWaveform.getBoundingClientRect();
   const width = Math.max(1, Math.floor(bounds.width || 420));
@@ -222,9 +842,16 @@ function paintPreviewWaveform() {
   context.setTransform(ratio, 0, 0, ratio, 0, 0);
   context.clearRect(0, 0, width, height);
   const source = state.previewWaveform.length ? state.previewWaveform : Array.from({ length: 180 }, () => 0);
-  const count = Math.max(18, Math.min(source.length, Math.floor(width / 4)));
-  const bins = TouchzoukUI.rebinWaveform(source, count);
-  const progress = previewAudio.duration ? previewAudio.currentTime / previewAudio.duration : 0;
+  const targetCount = Math.max(18, Math.floor(width / 4));
+  const visibleSamples = (state.previewView.end - state.previewView.start) * source.length;
+  let bins;
+  if (visibleSamples >= targetCount) {
+    const startIndex = Math.floor(state.previewView.start * source.length);
+    const endIndex = Math.max(startIndex + 1, Math.ceil(state.previewView.end * source.length));
+    bins = TouchzoukUI.rebinWaveform(source.slice(startIndex, endIndex), targetCount);
+  } else bins = interpolatedWaveform(source, state.previewView.start, state.previewView.end, targetCount);
+  const fullProgress = previewAudio.duration ? previewAudio.currentTime / previewAudio.duration : 0;
+  const progress = (fullProgress - state.previewView.start) / (state.previewView.end - state.previewView.start);
   const step = width / bins.length;
   const hoverIndex = state.previewHoverRatio == null ? -10 : Math.min(bins.length - 1, Math.floor(state.previewHoverRatio * bins.length));
   bins.forEach((point, index) => {
@@ -291,6 +918,7 @@ function setPreviewMetadata(title, duration) {
   previewDuration.textContent = formatDuration(effectiveDuration);
   previewSeek.setAttribute("aria-label", `Seek through ${state.previewTitle}`);
   previewSeek.setAttribute("aria-valuetext", `${formatDuration(previewAudio.currentTime)} of ${formatDuration(effectiveDuration)}`);
+  syncLyricsEndMarker(effectiveDuration);
   updatePreviewPlayState();
 }
 
@@ -303,9 +931,12 @@ function setPreviewSource(source, title, duration = 0) {
     state.previewStarting = false;
     previewAudio.pause();
     state.previewSource = absoluteSource;
+    state.previewView = { start: 0, end: 1 };
+    setPreviewSticky(false);
     previewAudio.src = source;
     previewSeek.value = "0";
     previewCurrent.textContent = "00:00";
+    renderTimedEditor();
   }
   previewPlay.disabled = false;
   setPreviewMetadata(title, duration);
@@ -365,12 +996,38 @@ function pausePreview() {
 
 function paintPreviewProgress() {
   const progress = previewAudio.duration ? previewAudio.currentTime / previewAudio.duration : 0;
-  previewSeek.value = String(Math.round(progress * 1000));
+  if (state.previewSticky && state.previewPlayRequested && !state.previewSeeking) centerPreviewView(progress, false);
+  const { start, end } = state.previewView;
+  const visibleProgress = Math.max(0, Math.min(1, (progress - start) / (end - start)));
+  previewSeek.value = String(Math.round(visibleProgress * 1000));
   previewCurrent.textContent = formatDuration(previewAudio.currentTime);
   const duration = formatDuration(previewAudio.duration);
   previewDuration.textContent = duration;
   previewSeek.setAttribute("aria-valuetext", `${previewCurrent.textContent} of ${duration}`);
+  if (form.elements.kind.value === "song") {
+    const offset = lyricsOffsetAtTime(previewAudio.currentTime * 1000);
+    if (offset !== state.lyricsPlaybackOffset) {
+      state.lyricsPlaybackOffset = offset;
+      if (!lyricsComposing) renderLyricsEditor();
+    }
+  }
   requestPreviewWaveformPaint();
+}
+
+function animatePreviewPlayback() {
+  if (previewPlaybackFrame || !state.previewPlayRequested) return;
+  const frame = () => {
+    previewPlaybackFrame = 0;
+    if (!state.previewPlayRequested) return;
+    paintPreviewProgress();
+    previewPlaybackFrame = requestAnimationFrame(frame);
+  };
+  previewPlaybackFrame = requestAnimationFrame(frame);
+}
+
+function stopPreviewAnimation() {
+  if (previewPlaybackFrame) cancelAnimationFrame(previewPlaybackFrame);
+  previewPlaybackFrame = 0;
 }
 
 setPreviewVolume(previewVolume.value);
@@ -380,10 +1037,12 @@ previewAudio.addEventListener("loadedmetadata", () => {
   previewSeek.disabled = false;
   setPreviewMetadata(state.previewTitle, previewAudio.duration);
   paintPreviewProgress();
+  renderTimedEditor();
 });
 previewAudio.addEventListener("timeupdate", paintPreviewProgress);
 previewAudio.addEventListener("ended", () => {
   state.previewPlayRequested = false;
+  stopPreviewAnimation();
   updatePreviewPlayState();
 });
 previewAudio.addEventListener("play", () => {
@@ -391,10 +1050,12 @@ previewAudio.addEventListener("play", () => {
     previewAudio.pause();
     return;
   }
+  animatePreviewPlayback();
   updatePreviewPlayState();
 });
 previewAudio.addEventListener("pause", () => {
   if (!state.previewStarting && !state.previewSeeking) state.previewPlayRequested = false;
+  if (!state.previewPlayRequested) stopPreviewAnimation();
   updatePreviewPlayState();
 });
 TouchzoukUI.bindSeeker({
@@ -406,8 +1067,9 @@ TouchzoukUI.bindSeeker({
   },
   onSeek: (progress) => {
     if (!previewAudio.duration) return;
-    previewSeek.value = String(Math.round(progress * 1000));
-    previewAudio.currentTime = progress * previewAudio.duration;
+    const fullProgress = state.previewView.start + progress * (state.previewView.end - state.previewView.start);
+    previewSeek.value = String(Math.round(fullProgress * 1000));
+    previewAudio.currentTime = fullProgress * previewAudio.duration;
     paintPreviewProgress();
     if (state.previewSeekWasPlaying && previewAudio.paused && !state.previewStarting) void playPreview();
   },
@@ -417,6 +1079,17 @@ TouchzoukUI.bindSeeker({
     state.previewSeeking = false;
   },
 });
+previewSeek.addEventListener("keydown", (event) => {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key) || !previewAudio.duration) return;
+  event.preventDefault();
+  let progress = Number(previewSeek.value) / 1000;
+  if (event.key === "Home") progress = 0;
+  else if (event.key === "End") progress = 1;
+  else progress += (event.key === "ArrowLeft" ? -1 : 1) * (event.shiftKey ? .01 : .001);
+  const { start, end } = state.previewView;
+  previewAudio.currentTime = (start + Math.max(0, Math.min(1, progress)) * (end - start)) * previewAudio.duration;
+  paintPreviewProgress();
+});
 uploadWaveform.parentElement.addEventListener("pointermove", (event) => {
   state.previewHoverRatio = TouchzoukUI.pointerRatio(event, uploadWaveform);
   requestPreviewWaveformPaint();
@@ -425,7 +1098,525 @@ uploadWaveform.parentElement.addEventListener("pointerleave", () => {
   state.previewHoverRatio = null;
   requestPreviewWaveformPaint();
 });
-window.addEventListener("resize", paintPreviewWaveform);
+window.addEventListener("resize", () => {
+  paintPreviewWaveform();
+  renderTimelineNavigator();
+});
+
+document.querySelector("[data-add-song]").addEventListener("click", () => {
+  addSongs([songListInput.value.split(/\r?\n/).find((line) => line.trim()) || ""]);
+});
+document.querySelector("[data-add-song-list]").addEventListener("click", () => addSongs(songListInput.value.split(/\r?\n/)));
+clearSongs.addEventListener("click", () => {
+  state.timedContent.entries = [];
+  songListInput.value = "";
+  renderTimedEditor();
+});
+songListInput.addEventListener("paste", (event) => {
+  const lines = event.clipboardData?.getData("text").split(/\r?\n/).filter((line) => line.trim()) || [];
+  if (lines.length < 2) return;
+  event.preventDefault();
+  addSongs(lines);
+});
+
+function decodePlaylistText(value) {
+  const textarea = document.createElement("textarea");
+  textarea.innerHTML = value;
+  return textarea.value.trim();
+}
+
+function virtualDJField(line, name) {
+  const match = line.match(new RegExp(`<${name}>([\\s\\S]*?)<\\/${name}>`, "i"));
+  return match ? decodePlaylistText(match[1]) : "";
+}
+
+function playlistClockMS(value) {
+  const parts = value.split(":").map(Number);
+  if (parts.length < 2 || parts.some((part) => !Number.isFinite(part))) return null;
+  return ((parts[0] * 60 + parts[1]) * 60 + (parts[2] || 0)) * 1000;
+}
+
+function parseVirtualDJHistory(source) {
+  const lines = source.replace(/^\ufeff/, "").split(/\r?\n/);
+  const records = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (!line.startsWith("#EXTVDJ:")) continue;
+    const artist = virtualDJField(line, "artist");
+    const title = virtualDJField(line, "title");
+    const remix = virtualDJField(line, "remix");
+    const path = lines[index + 1]?.trim() || "";
+    const filename = path.split(/[\\/]/).at(-1)?.replace(/\.[^.]+$/, "") || "Untitled song";
+    const display = [artist, title].filter(Boolean).join(" — ") || title || filename;
+    records.push({
+      text: remix ? `${display} (${remix})` : display,
+      clock_ms: playlistClockMS(virtualDJField(line, "time")),
+    });
+  }
+  if (!records.length) return [];
+  let previousClock = records[0].clock_ms;
+  let firstClock = previousClock;
+  let previousOffset = -1;
+  return records.map((record) => {
+    let clock = record.clock_ms;
+    if (clock == null || firstClock == null) {
+      firstClock ??= 0;
+      clock = previousClock == null ? firstClock : previousClock + 180_000;
+    }
+    while (previousClock != null && clock < previousClock) clock += 24 * 60 * 60 * 1000;
+    previousClock = clock;
+    let offset = Math.max(0, clock - firstClock);
+    if (offset <= previousOffset) offset = previousOffset + 1;
+    previousOffset = offset;
+    return { text: record.text, offset_ms: offset };
+  });
+}
+
+async function appendVirtualDJFiles(files) {
+  if (playlistInput.disabled) return;
+  let added = 0;
+  for (const file of files) {
+    const records = parseVirtualDJHistory(await file.text());
+    if (!records.length) continue;
+    const base = state.timedContent.entries.length ? state.timedContent.entries.at(-1).time_ms + 180_000 : 0;
+    const available = Math.max(0, 500 - state.timedContent.entries.length);
+    records.slice(0, available).forEach((record) => {
+      state.timedContent.entries.push({ text: record.text, time_ms: base + record.offset_ms });
+      added += 1;
+    });
+    if (records.length > available) break;
+  }
+  if (!added) setMessage("No VirtualDJ history songs were found in that file.", true);
+  else setMessage(`${added} playlist song${added === 1 ? "" : "s"} appended.`);
+  playlistInput.value = "";
+  renderTimedEditor();
+}
+
+playlistInput.addEventListener("change", () => void appendVirtualDJFiles([...playlistInput.files]));
+["dragenter", "dragover"].forEach((eventName) => playlistDrop.addEventListener(eventName, (event) => {
+  event.preventDefault();
+  if (playlistInput.disabled) return;
+  playlistDrop.classList.add("is-dragging");
+}));
+["dragleave", "drop"].forEach((eventName) => playlistDrop.addEventListener(eventName, (event) => {
+  event.preventDefault();
+  playlistDrop.classList.remove("is-dragging");
+}));
+playlistDrop.addEventListener("drop", (event) => void appendVirtualDJFiles([...event.dataTransfer.files]));
+
+function sortLyricsMarkers() {
+  state.timedContent.markers.sort((left, right) => left.offset - right.offset || left.time_ms - right.time_ms);
+}
+
+function lyricPauseCountBeforeOffset(offset) {
+  const pauses = state.timedContent.pauses;
+  let low = 0;
+  let high = pauses.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (pauses[middle] < offset) low = middle + 1;
+    else high = middle;
+  }
+  return low;
+}
+
+function lyricPauseCountAtOffset(offset) {
+  return lyricPauseCountBeforeOffset(offset + 1) - lyricPauseCountBeforeOffset(offset);
+}
+
+function lyricMarkerTimingPoints() {
+  const markers = [...state.timedContent.markers].sort((left, right) => left.offset - right.offset || left.time_ms - right.time_ms);
+  const usedAtOffset = new Map();
+  return markers.map((marker) => {
+    const index = usedAtOffset.get(marker.offset) || 0;
+    usedAtOffset.set(marker.offset, index + 1);
+    const pausesAtOffset = lyricPauseCountAtOffset(marker.offset);
+    return {
+      ...marker,
+      position: marker.offset + lyricPauseCountBeforeOffset(marker.offset) + (pausesAtOffset && index > 0 ? pausesAtOffset : 0),
+    };
+  });
+}
+
+function lyricTextOffsetAtTimingPosition(position) {
+  const length = Array.from(state.timedContent.text).length;
+  const pauses = state.timedContent.pauses;
+  let pausesBefore = 0;
+  for (let index = 0; index < pauses.length;) {
+    const offset = pauses[index];
+    let count = 1;
+    while (index + count < pauses.length && pauses[index + count] === offset) count += 1;
+    const pauseStart = offset + pausesBefore;
+    if (position < pauseStart) return Math.max(0, Math.min(length, Math.floor(position - pausesBefore)));
+    if (position < pauseStart + count) return Math.max(0, Math.min(length, offset));
+    pausesBefore += count;
+    index += count;
+  }
+  return Math.max(0, Math.min(length, Math.floor(position - pausesBefore)));
+}
+
+function timeAtLyricsOffset(offset, pauseCountBeforeCursor = lyricPauseCountBeforeOffset(offset)) {
+  const collapsed = collapsedLyricRanges().find((range) => offset >= range.start && offset <= range.end);
+  if (collapsed) return collapsed.time_ms;
+  const markers = lyricMarkerTimingPoints();
+  const durationMS = Math.round(previewDurationSeconds() * 1000);
+  const length = Array.from(state.timedContent.text).length;
+  const position = offset + pauseCountBeforeCursor;
+  const exact = markers.filter((marker) => marker.position === position).at(-1);
+  if (exact) return exact.time_ms;
+  const finalPosition = length + state.timedContent.pauses.length;
+  const before = markers.filter((marker) => marker.position < position).at(-1) || { position: 0, time_ms: 0 };
+  const after = markers.find((marker) => marker.position > position) || { position: finalPosition, time_ms: durationMS };
+  if (after.position === before.position) return before.time_ms;
+  return Math.round(before.time_ms + (after.time_ms - before.time_ms) * (position - before.position) / (after.position - before.position));
+}
+
+function lyricsOffsetAtTime(timeMS) {
+  const markers = lyricMarkerTimingPoints().sort((left, right) => left.time_ms - right.time_ms || left.position - right.position);
+  if (!markers.length) return -1;
+  let left = markers[0];
+  for (const right of markers.slice(1)) {
+    if (timeMS >= right.time_ms) {
+      left = right;
+      continue;
+    }
+    if (right.time_ms === left.time_ms) return lyricTextOffsetAtTimingPosition(right.position);
+    const progress = Math.max(0, (timeMS - left.time_ms) / (right.time_ms - left.time_ms));
+    return lyricTextOffsetAtTimingPosition(Math.floor(left.position + (right.position - left.position) * progress));
+  }
+  return lyricTextOffsetAtTimingPosition(left.position);
+}
+
+function syncLyricsFromEditor() {
+  const selection = currentLyricsSelection();
+  const snapshot = readLyricsEditor();
+  state.timedContent.text = snapshot.text;
+  state.timedContent.markers = snapshot.markers;
+  state.timedContent.pauses = snapshot.pauses;
+  state.lyricsSelection = selection;
+  if (!snapshot.text) {
+    state.timedContent.markers = [];
+    state.timedContent.pauses = [];
+  } else {
+    ensureInitialLyricsMarkers();
+    syncLyricsEndMarker();
+    sortLyricsMarkers();
+  }
+  if (form.elements.kind.value === "song" && state.lyricsPlaybackOffset >= 0) {
+    state.lyricsPlaybackOffset = lyricsOffsetAtTime(previewAudio.currentTime * 1000);
+  }
+  renderTimedEditor();
+}
+
+function insertLyricsText(text) {
+  const selection = window.getSelection();
+  if (!selection?.rangeCount || !lyricsEditor.contains(selection.anchorNode)) return;
+  const range = selection.getRangeAt(0);
+  range.deleteContents();
+  const node = document.createTextNode(text.replace(/\r\n?/g, "\n"));
+  range.insertNode(node);
+  range.setStartAfter(node);
+  range.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(range);
+  syncLyricsFromEditor();
+}
+
+lyricsEditor.addEventListener("compositionstart", () => { lyricsComposing = true; });
+lyricsEditor.addEventListener("compositionend", () => {
+  lyricsComposing = false;
+  syncLyricsFromEditor();
+});
+lyricsEditor.addEventListener("input", () => { if (!lyricsComposing) syncLyricsFromEditor(); });
+lyricsEditor.addEventListener("paste", (event) => {
+  event.preventDefault();
+  insertLyricsText(event.clipboardData?.getData("text/plain") || "");
+});
+lyricsEditor.addEventListener("beforeinput", (event) => {
+  if (event.inputType !== "insertParagraph") return;
+  event.preventDefault();
+  insertLyricsText("\n");
+});
+
+function addLyricMarkerAtCursor() {
+  const length = Array.from(state.timedContent.text).length;
+  if (!length) return;
+  const { offset, pauseCount } = currentLyricsCursor();
+  const timeMS = timeAtLyricsOffset(offset, pauseCount);
+  const existing = state.timedContent.markers.filter((marker) => marker.offset === offset);
+  let marker;
+  let created = false;
+  const afterPause = pauseCount > lyricPauseCountBeforeOffset(offset);
+  if (state.timedContent.pauses.includes(offset) && existing.length === 1 && afterPause) {
+    marker = { offset, time_ms: timeMS };
+    state.timedContent.markers.push(marker);
+    created = true;
+  } else if (existing.length) marker = afterPause ? existing.at(-1) : existing[0];
+  else {
+    marker = { offset, time_ms: timeMS };
+    state.timedContent.markers.push(marker);
+    created = true;
+  }
+  state.timedContent.markers.sort((left, right) => left.offset - right.offset || left.time_ms - right.time_ms);
+  const index = state.timedContent.markers.indexOf(marker);
+  const minimum = index ? state.timedContent.markers[index - 1].time_ms + 1 : 0;
+  const maximum = state.timedContent.markers[index + 1]?.time_ms - 1;
+  if (maximum !== undefined && minimum > maximum) {
+    if (created) state.timedContent.markers.splice(index, 1);
+    setMessage("There is no room for another marker at this position.", true);
+  } else {
+    marker.time_ms = Math.max(minimum, Math.min(maximum ?? timeMS, created ? marker.time_ms : timeMS));
+  }
+  renderTimedEditor();
+  lyricsEditor.focus({ preventScroll: true });
+  restoreLyricsSelection(offset, offset, pauseCount);
+}
+
+function addLyricPauseAtCursor() {
+  const cursor = currentLyricsCursor();
+  const { offset } = cursor;
+  let { pauseCount } = cursor;
+  const added = !state.timedContent.pauses.includes(offset);
+  if (added) state.timedContent.pauses.push(offset);
+  state.timedContent.pauses.sort((left, right) => left - right);
+  if (added) pauseCount = lyricPauseCountBeforeOffset(offset) + 1;
+  renderLyricsEditor();
+  lyricsEditor.focus({ preventScroll: true });
+  restoreLyricsSelection(offset, offset, pauseCount);
+}
+
+function removeLyricMarkerAtCursor() {
+  const { offset, pauseCount } = currentLyricsCursor();
+  const last = state.timedContent.markers.length - 1;
+  const afterPause = pauseCount > lyricPauseCountBeforeOffset(offset);
+  const atOffset = state.timedContent.markers
+    .map((marker, markerIndex) => ({ marker, markerIndex }))
+    .filter(({ marker }) => marker.offset === offset);
+  const target = afterPause ? (atOffset.length > 1 ? atOffset.at(-1) : null) : atOffset[0];
+  const index = target && target.markerIndex > 0 && target.markerIndex < last ? target.markerIndex : -1;
+  if (index < 0) {
+    setMessage("There is no removable marker at this cursor position.", true);
+    return;
+  }
+  state.timedContent.markers.splice(index, 1);
+  setMessage("");
+  renderTimedEditor();
+  lyricsEditor.focus({ preventScroll: true });
+  restoreLyricsSelection(offset, offset, pauseCount);
+}
+
+function toggleCollapsedLyricsSection() {
+  let selection = currentLyricsSelection();
+  const existing = collapsedLyricRanges().find((range) => selection.start >= range.start && selection.end <= range.end);
+  if (existing) {
+    state.timedContent.markers = state.timedContent.markers.filter((marker) => !existing.markers.includes(marker));
+    ensureInitialLyricsMarkers();
+    syncLyricsEndMarker();
+    sortLyricsMarkers();
+    renderTimedEditor();
+    restoreLyricsSelection(selection.start, selection.end);
+    return;
+  }
+  if (selection.start === selection.end) {
+    setMessage("Select lyrics to collapse, or place the cursor inside a collapsed section to reveal it.", true);
+    return;
+  }
+  const runes = Array.from(state.timedContent.text);
+  let start = selection.start;
+  let end = selection.end;
+  if (end > start && runes[end - 1] === "\n") end -= 1;
+  while (start > 0 && runes[start - 1] !== "\n") start -= 1;
+  while (end < runes.length && runes[end] !== "\n") end += 1;
+  selection = { start, end };
+  state.lyricsSelection = selection;
+  const before = state.timedContent.markers.filter((marker) => marker.offset < selection.start).at(-1);
+  const after = state.timedContent.markers.find((marker) => marker.offset > selection.end);
+  const minimum = (before?.time_ms ?? -1) + 1;
+  const maximum = (after?.time_ms ?? Math.round(previewDurationSeconds() * 1000)) - 1;
+  const timeMS = Math.max(minimum, Math.min(maximum, timeAtLyricsOffset(selection.start)));
+  if (timeMS > maximum) {
+    setMessage("There is no timing room to collapse this selection.", true);
+    return;
+  }
+  state.timedContent.markers = state.timedContent.markers.filter((marker) => marker.offset < selection.start || marker.offset > selection.end);
+  state.timedContent.markers.push({ offset: selection.start, time_ms: timeMS }, { offset: selection.end, time_ms: timeMS });
+  const lyricsLength = Array.from(state.timedContent.text).length;
+  const durationMS = Math.round(previewDurationSeconds() * 1000);
+  if (selection.end === lyricsLength && timeMS < durationMS) state.timedContent.markers.push({ offset: lyricsLength, time_ms: durationMS });
+  sortLyricsMarkers();
+  renderTimedEditor();
+  restoreLyricsSelection(selection.start, selection.end);
+}
+
+function jumpToLyricsCursor() {
+  if (!previewDurationSeconds()) return;
+  const { offset, pauseCount } = currentLyricsCursor();
+  const timeMS = timeAtLyricsOffset(offset, pauseCount);
+  previewAudio.currentTime = Math.max(0, Math.min(previewDurationSeconds(), timeMS / 1000));
+  centerPreviewView(previewAudio.currentTime / previewDurationSeconds());
+  paintPreviewProgress();
+}
+
+document.querySelector("[data-add-lyric-marker]").addEventListener("click", addLyricMarkerAtCursor);
+document.querySelector("[data-add-lyric-pause]").addEventListener("click", addLyricPauseAtCursor);
+document.querySelector("[data-remove-lyric-marker]").addEventListener("click", removeLyricMarkerAtCursor);
+document.querySelector("[data-toggle-lyric-section]").addEventListener("click", toggleCollapsedLyricsSection);
+document.querySelector("[data-jump-lyric-cursor]").addEventListener("click", jumpToLyricsCursor);
+lyricsEditor.addEventListener("keydown", (event) => {
+  if (event.ctrlKey && event.code === "Space") {
+    event.preventDefault();
+    addLyricPauseAtCursor();
+  }
+});
+["click", "keyup", "select"].forEach((eventName) => lyricsEditor.addEventListener(eventName, () => {
+  currentLyricsSelection();
+  updateLyricSectionAction();
+}));
+
+function minimumPreviewSpan() {
+  const durationMS = Math.round(previewDurationSeconds() * 1000);
+  return durationMS ? Math.min(1, 1 / durationMS) : 1;
+}
+
+function applyPreviewView() {
+  paintPreviewWaveform();
+  renderTimedEditor();
+}
+
+function centerPreviewView(progress, repaint = true) {
+  const span = state.previewView.end - state.previewView.start;
+  state.previewView.start = Math.max(0, Math.min(1 - span, progress - span / 2));
+  state.previewView.end = state.previewView.start + span;
+  if (repaint) applyPreviewView();
+  else {
+    renderTimelineNavigator();
+    updateTimelineCuePositions();
+  }
+}
+
+function setPreviewSticky(sticky) {
+  state.previewSticky = sticky;
+  timelineFollow.setAttribute("aria-pressed", String(sticky));
+  if (sticky && previewDurationSeconds()) centerPreviewView(previewAudio.currentTime / previewDurationSeconds());
+}
+
+function zoomPreview(factor, anchorRatio = null) {
+  const span = state.previewView.end - state.previewView.start;
+  const nextSpan = Math.max(minimumPreviewSpan(), Math.min(1, span * factor));
+  const playProgress = previewDurationSeconds() ? previewAudio.currentTime / previewDurationSeconds() : .5;
+  const fullAnchor = anchorRatio == null
+    ? (playProgress >= state.previewView.start && playProgress <= state.previewView.end ? playProgress : state.previewView.start + span / 2)
+    : state.previewView.start + anchorRatio * span;
+  const localAnchor = span ? (fullAnchor - state.previewView.start) / span : .5;
+  state.previewView.start = Math.max(0, Math.min(1 - nextSpan, fullAnchor - localAnchor * nextSpan));
+  state.previewView.end = state.previewView.start + nextSpan;
+  if (state.previewSticky) centerPreviewView(playProgress);
+  else applyPreviewView();
+}
+
+function panPreview(direction) {
+  setPreviewSticky(false);
+  const span = state.previewView.end - state.previewView.start;
+  state.previewView.start = Math.max(0, Math.min(1 - span, state.previewView.start + direction * span * .12));
+  state.previewView.end = state.previewView.start + span;
+  applyPreviewView();
+}
+
+uploadWaveform.parentElement.addEventListener("wheel", (event) => {
+  if (!previewDurationSeconds()) return;
+  event.preventDefault();
+  if (event.ctrlKey) zoomPreview(Math.exp(event.deltaY * .002), TouchzoukUI.pointerRatio(event, uploadWaveform));
+  else panPreview(Math.sign(event.deltaY || event.deltaX));
+}, { passive: false });
+
+function bindNavigatorPart(part, mode) {
+  const update = (original, delta) => {
+    const minimumSpan = minimumPreviewSpan();
+    if (mode === "start") state.previewView.start = Math.max(0, Math.min(original.end - minimumSpan, original.start + delta));
+    else if (mode === "end") state.previewView.end = Math.min(1, Math.max(original.start + minimumSpan, original.end + delta));
+    else {
+      const span = original.end - original.start;
+      state.previewView.start = Math.max(0, Math.min(1 - span, original.start + delta));
+      state.previewView.end = state.previewView.start + span;
+    }
+    paintPreviewWaveform();
+    renderTimedEditor();
+  };
+  part.addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+    event.preventDefault();
+    setPreviewSticky(false);
+    const direction = event.key === "ArrowLeft" ? -1 : 1;
+    update({ ...state.previewView }, direction * (event.shiftKey ? .01 : .002));
+    part.focus();
+  });
+  part.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    setPreviewSticky(false);
+    const startX = event.clientX;
+    const original = { ...state.previewView };
+    part.setPointerCapture(event.pointerId);
+    const move = (moveEvent) => {
+      if (moveEvent.pointerId !== event.pointerId) return;
+      const width = previewNavigator.getBoundingClientRect().width;
+      const delta = width ? (moveEvent.clientX - startX) / width : 0;
+      update(original, delta);
+    };
+    const finish = (finishEvent) => {
+      if (finishEvent.pointerId !== event.pointerId) return;
+      part.removeEventListener("pointermove", move);
+      part.removeEventListener("pointerup", finish);
+      part.removeEventListener("pointercancel", finish);
+    };
+    part.addEventListener("pointermove", move);
+    part.addEventListener("pointerup", finish);
+    part.addEventListener("pointercancel", finish);
+  });
+}
+bindNavigatorPart(document.querySelector("[data-timeline-start]"), "start");
+bindNavigatorPart(document.querySelector("[data-timeline-drag]"), "drag");
+bindNavigatorPart(document.querySelector("[data-timeline-end]"), "end");
+
+function runTimelineAction(action) {
+  if (!previewDurationSeconds()) return;
+  if (action === "zoom-in") zoomPreview(.78);
+  else if (action === "zoom-out") zoomPreview(1 / .78);
+  else if (action === "left") panPreview(-1);
+  else if (action === "right") panPreview(1);
+}
+
+function bindHoldAction(button) {
+  const action = () => runTimelineAction(button.dataset.timelineAction);
+  let delay = 0;
+  let repeat = 0;
+  const stop = () => {
+    clearTimeout(delay);
+    clearInterval(repeat);
+    delay = 0;
+    repeat = 0;
+  };
+  button.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    button.setPointerCapture(event.pointerId);
+    action();
+    delay = setTimeout(() => { repeat = setInterval(action, 55); }, 320);
+  });
+  ["pointerup", "pointercancel", "lostpointercapture", "blur"].forEach((eventName) => button.addEventListener(eventName, stop));
+  button.addEventListener("keydown", (event) => {
+    if (!["Enter", " "].includes(event.key)) return;
+    event.preventDefault();
+    action();
+  });
+  button.addEventListener("click", (event) => {
+    if (!event.detail) action();
+  });
+  button.addEventListener("contextmenu", (event) => event.preventDefault());
+}
+document.querySelectorAll("[data-timeline-action]").forEach(bindHoldAction);
+timelineFollow.addEventListener("contextmenu", (event) => event.preventDefault());
+timelineFollow.addEventListener("click", () => setPreviewSticky(!state.previewSticky));
 
 async function pollAudio(uploadID, sequence) {
   for (let attempt = 0; attempt < 3600; attempt += 1) {
@@ -444,6 +1635,7 @@ async function pollAudio(uploadID, sequence) {
       if (!state.kindDirty) setKind(upload.suggested_kind, true);
       audioDrop.hidden = true;
       audioReady.hidden = false;
+      coverUpload.hidden = false;
       document.querySelector("[data-audio-name]").textContent = upload.title || upload.filename;
       document.querySelector("[data-audio-detail]").textContent = `${formatDuration(upload.duration_seconds)} · metadata ready · building waveform`;
     }
@@ -487,6 +1679,7 @@ async function startAudioUpload(file) {
     if (sequence !== state.audioSequence) return;
     audioDrop.hidden = true;
     audioReady.hidden = false;
+    coverUpload.hidden = false;
     document.querySelector("[data-audio-name]").textContent = upload.filename;
     document.querySelector("[data-audio-detail]").textContent = "Uploaded · waiting for metadata and waveform";
     setPreviewSource(upload.asset_url, upload.filename);
@@ -664,6 +1857,7 @@ function mediaPayload() {
     telegram_url: form.elements.telegram_url.value,
     cover_position: `${Math.round(state.coverTransform.x)}% ${Math.round(state.coverTransform.y)}%`,
     cover_zoom: Number(state.coverTransform.zoom.toFixed(2)),
+    timed_content: cloneTimedContent(state.timedContent),
   };
 }
 
@@ -677,6 +1871,8 @@ function cancelPendingEditorAssets() {
   state.audioUpload = null;
   state.coverUpload = null;
   state.coverReplacementStarted = false;
+  state.previewView = { start: 0, end: 1 };
+  setPreviewSticky(false);
   state.waveformPreviewController?.abort();
   clearPreview();
   audioInput.value = "";
@@ -694,6 +1890,11 @@ function resetEditor() {
   state.editing = null;
   state.autoTitle = "";
   state.kindDirty = false;
+  state.timedContent = { entries: [], text: "", markers: [], pauses: [] };
+  state.lyricsCursor = 0;
+  state.lyricsCursorPauseCount = 0;
+  state.lyricsSelection = { start: 0, end: 0 };
+  state.lyricsPlaybackOffset = -1;
   form.reset();
   setPreviewVolume(previewVolume.value);
   setKind("set");
@@ -704,7 +1905,10 @@ function resetEditor() {
   coverDrop.classList.remove("has-preview");
   coverDrop.setAttribute("aria-label", "Choose a cover, or drop one here");
   coverTools.hidden = true;
+  coverUpload.hidden = true;
   setCoverTransform();
+  lyricsEditor.replaceChildren();
+  songListInput.value = "";
   rebuildWave.hidden = true;
   setAssetStatus(audioStatus, "");
   setAssetStatus(coverStatus, "");
@@ -725,6 +1929,7 @@ function editItem(item) {
   state.editing = item;
   state.autoTitle = "";
   state.kindDirty = true;
+  setMessage("");
   setKind(item.kind);
   form.elements.title.value = item.title || "";
   form.elements.subtitle.value = item.subtitle || "";
@@ -737,8 +1942,15 @@ function editItem(item) {
   form.elements.tags.value = (item.tags || []).join(", ");
   renderTagSuggestions(item.kind);
   form.elements.telegram_url.value = item.telegram_url || "";
+  state.timedContent = cloneTimedContent(item.timed_content);
+  state.lyricsCursor = 0;
+  state.lyricsCursorPauseCount = 0;
+  state.lyricsSelection = { start: 0, end: 0 };
+  state.lyricsPlaybackOffset = -1;
+  renderTimedEditor();
   audioDrop.hidden = true;
   audioReady.hidden = false;
+  coverUpload.hidden = false;
   document.querySelector("[data-audio-name]").textContent = item.title;
   document.querySelector("[data-audio-detail]").textContent = `${formatDuration(item.duration_seconds)} · existing audio`;
   setAssetStatus(audioStatus, "Audio is retained while editing.");
@@ -798,6 +2010,11 @@ cancelEdit.addEventListener("click", resetEditor);
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (editorSavePending) { setMessage("Wait for the current save to finish.", true); return; }
+  if (form.elements.kind.value === "set" && state.timedContent.entries.some((entry) => !entry.text.trim())) {
+    setMessage("Name every song before saving the set.", true);
+    [...timedList.querySelectorAll(".timed-entry input")].find((input) => !input.value.trim())?.focus();
+    return;
+  }
   if (!form.reportValidity()) return;
   if (!state.editing && !state.audioUpload) { setMessage("Wait for the audio upload and analysis to finish.", true); return; }
   if (!state.editing && !state.coverUpload) { setMessage("Upload a cover before publishing.", true); return; }

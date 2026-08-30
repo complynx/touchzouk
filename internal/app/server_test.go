@@ -640,6 +640,104 @@ func TestApplyMediaInputPreservesOmittedCoverPosition(t *testing.T) {
 	assert.InDelta(t, 3, item.CoverZoom, 0)
 }
 
+func TestApplyMediaInputNormalizesTimedContentByKind(t *testing.T) {
+	set := MediaItem{DurationSeconds: 60}
+	require.NoError(t, applyMediaInput(&set, mediaInput{
+		Kind: "set", Title: "Timed set",
+		TimedContent: &TimedContent{
+			Entries: []TimedEntry{{Text: " Opening ", TimeMS: 0}, {Text: "After finish", TimeMS: 180_000}},
+			Text:    "discarded lyrics",
+		},
+	}))
+	assert.Equal(t, TimedContent{Entries: []TimedEntry{
+		{Text: "Opening", TimeMS: 0}, {Text: "After finish", TimeMS: 180_000},
+	}}, set.TimedContent)
+
+	song := MediaItem{}
+	require.NoError(t, applyMediaInput(&song, mediaInput{
+		Kind: "song", Title: "Timed song",
+		TimedContent: &TimedContent{
+			Entries: []TimedEntry{{Text: "discarded song", TimeMS: 0}},
+			Text:    "first\r\nsecond", Markers: []TextMarker{{Offset: 6, TimeMS: 1_000}, {Offset: 0, TimeMS: 0}},
+			Pauses: []int{5, 5},
+		},
+	}))
+	assert.Equal(t, TimedContent{
+		Text: "first\nsecond", Markers: []TextMarker{{Offset: 0, TimeMS: 0}, {Offset: 6, TimeMS: 1_000}},
+		Pauses: []int{5},
+	}, song.TimedContent)
+
+	bomSong := MediaItem{}
+	require.NoError(t, applyMediaInput(&bomSong, mediaInput{
+		Kind: "song", Title: "BOM song",
+		TimedContent: &TimedContent{
+			Text: "\ufeffab", Markers: []TextMarker{{Offset: 0, TimeMS: 0}, {Offset: 3, TimeMS: 1_000}},
+			Pauses: []int{2},
+		},
+	}))
+	assert.Equal(t, TimedContent{
+		Text: "ab", Markers: []TextMarker{{Offset: 0, TimeMS: 0}, {Offset: 2, TimeMS: 1_000}},
+		Pauses: []int{1},
+	}, bomSong.TimedContent)
+}
+
+func TestApplyMediaInputPreservesTimedContentWhenOmitted(t *testing.T) {
+	original := TimedContent{Entries: []TimedEntry{{Text: "Opening", TimeMS: 0}}}
+	item := MediaItem{Kind: "set", Title: "Before", TimedContent: original}
+
+	require.NoError(t, applyMediaInput(&item, mediaInput{Kind: "set", Title: "After"}))
+	assert.Equal(t, original, item.TimedContent)
+
+	empty := TimedContent{}
+	require.NoError(t, applyMediaInput(&item, mediaInput{Kind: "set", Title: "Cleared", TimedContent: &empty}))
+	assert.Empty(t, item.TimedContent.Entries)
+	assert.Empty(t, item.TimedContent.Text)
+	assert.Empty(t, item.TimedContent.Markers)
+	assert.Empty(t, item.TimedContent.Pauses)
+}
+
+func TestApplyMediaInputRejectsUnorderedTimedContent(t *testing.T) {
+	err := applyMediaInput(&MediaItem{}, mediaInput{
+		Kind: "set", Title: "Broken set",
+		TimedContent: &TimedContent{Entries: []TimedEntry{{Text: "One", TimeMS: 2}, {Text: "Two", TimeMS: 1}}},
+	})
+	assert.EqualError(t, err, "song start times must be ordered at least 1 millisecond apart")
+}
+
+func TestApplyMediaInputAllowsCollapsedLyricsSection(t *testing.T) {
+	item := MediaItem{DurationSeconds: 10}
+	input := mediaInput{
+		Kind: "song", Title: "Collapsed lyrics",
+		TimedContent: &TimedContent{
+			Text: "[verse]\nSing",
+			Markers: []TextMarker{
+				{Offset: 0, TimeMS: 0},
+				{Offset: 0, TimeMS: 1_000},
+				{Offset: 7, TimeMS: 1_000},
+				{Offset: 12, TimeMS: 10_000},
+			},
+		},
+	}
+
+	require.NoError(t, applyMediaInput(&item, input))
+	assert.Equal(t, int64(1_000), item.TimedContent.Markers[1].TimeMS)
+	assert.Equal(t, int64(1_000), item.TimedContent.Markers[2].TimeMS)
+}
+
+func TestApplyMediaInputRejectsExtremeTimedContentWithoutOverflow(t *testing.T) {
+	err := applyMediaInput(&MediaItem{}, mediaInput{
+		Kind: "song", Title: "Broken song",
+		TimedContent: &TimedContent{
+			Text: "ab",
+			Markers: []TextMarker{
+				{Offset: 0, TimeMS: -1 << 63},
+				{Offset: 1, TimeMS: 1<<63 - 1},
+			},
+		},
+	})
+	assert.EqualError(t, err, "lyrics markers must follow the text; equal times may only collapse a section")
+}
+
 func TestMediaOrderPersistsExactCatalogOrder(t *testing.T) {
 	for _, kind := range []string{mediaKindSet, mediaKindSong} {
 		t.Run(kind, func(t *testing.T) {

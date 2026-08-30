@@ -24,10 +24,21 @@ documented in `testing/audio/README.md`.
 Player links accept `?track=<media-id>&t=<whole-seconds>`. `track` uses the
 stable catalog ID; `t` is optional and starts the player at that position.
 
-For the Docker demo used by the browser test loop:
+For a clean Docker demo used by the browser test loop on Windows:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\testing\recreate-test-container.ps1
+```
+
+The script stops and removes older local `touchzouk-demo` containers, recreates
+the test volume, builds the image, seeds representative data, waits for a
+healthy server, and prints the local URLs. `site/` is bind-mounted read-only,
+so CSS and JavaScript changes only need a browser refresh.
+
+The equivalent manual Compose command is:
 
 ```bash
-docker compose -f testing/docker-compose.yml up --build -d
+docker compose --project-name touchzouk-test -f testing/docker-compose.yml up --build -d
 ```
 
 Open <http://127.0.0.1:8000/listen>. The image verifies both `ffmpeg` and

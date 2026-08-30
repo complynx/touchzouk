@@ -15,6 +15,7 @@ const state = {
   hoverWaveformRatio: null,
   originalOrder: { set: null, song: null },
   shuffled: { set: false, song: false },
+  lyricLines: [],
 };
 
 const audio = document.querySelector("[data-atlas-audio]");
@@ -35,10 +36,23 @@ const menuLabel = menuButton.querySelector(".sr-only");
 const catalogTabs = document.querySelector("[data-catalog-tabs]");
 const catalogStatus = document.querySelector("[data-catalog-status]");
 const waveCanvas = document.querySelector(".wave-canvas");
+const playerCues = document.querySelector("[data-player-cues]");
+const playerText = document.querySelector("[data-player-text]");
+const textPrevious = document.querySelector("[data-text-previous]");
+const textCurrent = document.querySelector("[data-text-current]");
+const textNext = document.querySelector("[data-text-next]");
+const textDialog = document.querySelector("[data-text-dialog]");
+const textDialogTitle = document.querySelector("[data-text-dialog-title]");
+const textDialogBody = document.querySelector("[data-text-dialog-body]");
+const copyLyrics = document.querySelector("[data-copy-lyrics]");
+const copyLyricsStatus = document.querySelector("[data-copy-lyrics-status]");
+const copyLyricsIcon = copyLyrics.querySelector("[data-copy-icon]");
+const copyLyricsSuccess = copyLyrics.querySelector("[data-copy-success]");
 const skyCanvas = document.querySelector("[data-atlas-sky]");
 const fallbackWaveform = Array.from({ length: 180 }, (_, index) => .2 + Math.abs(Math.sin(index * .47) * Math.cos(index * .09) * .65));
 const playbackRequest = TouchzoukUI.playbackRequest();
 let waveformFrame = 0;
+let playerTextFrame = 0;
 
 function startAtlasSky() {
   const scene = document.querySelector(".atlas-main");
@@ -565,6 +579,398 @@ const formatDuration = (seconds) => {
   return `${hours ? `${hours}:` : ""}${String(minutes).padStart(2, "0")}:${String(rest).padStart(2, "0")}`;
 };
 
+function timedContent(item = state.current) {
+  return item?.timed_content || { entries: [], text: "", markers: [], pauses: [] };
+}
+
+function eligibleEntries(item = state.current, durationSeconds = audio.duration || item?.duration_seconds || 0) {
+  const durationMS = durationSeconds * 1000;
+  return (timedContent(item).entries || []).filter((entry) => entry.time_ms < durationMS);
+}
+
+function collapsedRanges(markers) {
+  const ranges = [];
+  for (let index = 0; index < markers.length - 1;) {
+    const left = markers[index];
+    let end = index;
+    while (end + 1 < markers.length && markers[end + 1].time_ms === left.time_ms && markers[end + 1].offset > markers[end].offset) end += 1;
+    if (end > index) ranges.push({ start: left.offset, end: markers[end].offset, time_ms: left.time_ms });
+    index = Math.max(index + 1, end + 1);
+  }
+  return ranges;
+}
+
+function currentIndexAt(items, timeMS) {
+  let current = -1;
+  for (let index = 0; index < items.length; index += 1) {
+    if (items[index].time_ms > timeMS) break;
+    current = index;
+  }
+  return current;
+}
+
+function lyricLines(item = state.current, durationSeconds = item?.duration_seconds || 0) {
+  const content = timedContent(item);
+  const runes = Array.from(content.text || "");
+  if (!runes.length) return [];
+  const lines = [];
+  let start = 0;
+  runes.forEach((rune, index) => {
+    if (rune !== "\n") return;
+    if (index > start) lines.push({ text: runes.slice(start, index).join(""), start, end: index });
+    start = index + 1;
+  });
+  if (start < runes.length) lines.push({ text: runes.slice(start).join(""), start, end: runes.length });
+  const markers = [...(content.markers || [])].sort((left, right) => left.offset - right.offset || left.time_ms - right.time_ms);
+  const collapsed = collapsedRanges(markers);
+  const durationMS = durationSeconds * 1000;
+  const pauses = [...(content.pauses || [])].sort((left, right) => left - right);
+  const pauseCountBefore = (offset) => {
+    let low = 0;
+    let high = pauses.length;
+    while (low < high) {
+      const middle = Math.floor((low + high) / 2);
+      if (pauses[middle] < offset) low = middle + 1;
+      else high = middle;
+    }
+    return low;
+  };
+  const usedAtOffset = new Map();
+  const timingMarkers = markers.map((marker) => {
+    const index = usedAtOffset.get(marker.offset) || 0;
+    usedAtOffset.set(marker.offset, index + 1);
+    const pausesAtOffset = pauseCountBefore(marker.offset + 1) - pauseCountBefore(marker.offset);
+    return {
+      ...marker,
+      position: marker.offset + pauseCountBefore(marker.offset) + (pausesAtOffset && index > 0 ? pausesAtOffset : 0),
+    };
+  });
+  const interpolatedTime = (offset) => {
+    const position = offset + pauseCountBefore(offset);
+    const exact = timingMarkers.find((marker) => marker.position === position);
+    if (exact) return exact.time_ms;
+    const finalPosition = runes.length + pauses.length;
+    const before = timingMarkers.filter((marker) => marker.position < position).at(-1) || { position: 0, time_ms: 0 };
+    const after = timingMarkers.find((marker) => marker.position > position) || { position: finalPosition, time_ms: durationMS };
+    if (after.position === before.position) return before.time_ms;
+    return Math.round(before.time_ms + (after.time_ms - before.time_ms) * (position - before.position) / (after.position - before.position));
+  };
+  lines.forEach((line) => {
+    line.markers = markers.filter((marker) => marker.offset >= line.start && marker.offset <= line.end);
+    line.pauses = (content.pauses || []).filter((offset) => offset >= line.start && offset <= line.end).map((offset) => offset - line.start);
+    const timingMarkers = line.markers.filter((marker) => marker.offset < runes.length);
+    line.time_ms = interpolatedTime(line.start);
+    line.karaoke = new Set(timingMarkers.map((marker) => marker.offset)).size > 1;
+    const collapsedRange = collapsed.find((range) => range.start <= line.start && range.end >= line.end);
+    line.collapsed = Boolean(collapsedRange);
+    if (collapsedRange) line.time_ms = collapsedRange.time_ms;
+  });
+  lines.forEach((line, index) => { line.end_time_ms = Math.min(lines[index + 1]?.time_ms ?? durationMS, durationMS); });
+  return lines.filter((line) => line.time_ms < durationMS);
+}
+
+function karaokeState(line, timeMS) {
+  if (!line?.markers?.length) return { before: "", active: "", after: line?.text || "", progress: 0, rtl: false };
+  const runes = Array.from(line.text);
+  const pauses = [...(line.pauses || [])].sort((left, right) => left - right);
+  const pauseCountBefore = (offset) => {
+    let low = 0;
+    let high = pauses.length;
+    while (low < high) {
+      const middle = Math.floor((low + high) / 2);
+      if (pauses[middle] < offset) low = middle + 1;
+      else high = middle;
+    }
+    return low;
+  };
+  const usedAtOffset = new Map();
+  const points = line.markers.map((marker) => {
+    const offset = marker.offset - line.start;
+    const index = usedAtOffset.get(offset) || 0;
+    usedAtOffset.set(offset, index + 1);
+    const pausesAtOffset = pauseCountBefore(offset + 1) - pauseCountBefore(offset);
+    return { offset, position: offset + pauseCountBefore(offset) + (pausesAtOffset && index > 0 ? pausesAtOffset : 0), time_ms: marker.time_ms };
+  });
+  if (points[0].position > 0) points.unshift({ offset: 0, position: 0, time_ms: line.time_ms });
+  const finalPosition = runes.length + pauses.length;
+  if (points.at(-1).position < finalPosition) {
+    points.push({ offset: runes.length, position: finalPosition, time_ms: Math.max(points.at(-1).time_ms + 1, line.end_time_ms) });
+  }
+  let activeIndex = -1;
+  let timingProgress = 0;
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const left = points[index];
+    const right = points[index + 1];
+    if (timeMS < left.time_ms) break;
+    if (timeMS >= right.time_ms) continue;
+    activeIndex = index;
+    timingProgress = (timeMS - left.time_ms) / Math.max(1, right.time_ms - left.time_ms);
+    break;
+  }
+  if (activeIndex < 0) {
+    return timeMS >= points.at(-1).time_ms
+      ? { before: line.text, active: "", after: "", progress: 1, rtl: false }
+      : { before: "", active: "", after: line.text, progress: 0, rtl: false };
+  }
+  const left = points[activeIndex];
+  const right = points[activeIndex + 1];
+  const timingPosition = left.position + (right.position - left.position) * timingProgress;
+  let countedPauses = 0;
+  let textPosition = timingPosition;
+  for (let index = 0; index < pauses.length;) {
+    const offset = pauses[index];
+    let count = 1;
+    while (index + count < pauses.length && pauses[index + count] === offset) count += 1;
+    const pauseStart = offset + countedPauses;
+    if (timingPosition < pauseStart) {
+      textPosition = timingPosition - countedPauses;
+      break;
+    }
+    if (timingPosition < pauseStart + count) {
+      textPosition = offset;
+      break;
+    }
+    countedPauses += count;
+    textPosition = timingPosition - countedPauses;
+    index += count;
+  }
+  const active = runes.slice(left.offset, right.offset).join("");
+  return {
+    before: runes.slice(0, left.offset).join(""),
+    active,
+    after: runes.slice(right.offset).join(""),
+    progress: right.offset === left.offset ? 0 : Math.max(0, Math.min(1, (textPosition - left.offset) / (right.offset - left.offset))),
+    rtl: /[\p{Script=Arabic}\p{Script=Hebrew}]/u.test(active),
+  };
+}
+
+function setPrimaryLyric(line, timeMS, karaoke) {
+  if (!karaoke) {
+    const key = `plain:${state.current?.id || ""}:${line?.start ?? -1}:${line?.end ?? -1}`;
+    if (textCurrent.dataset.lyricKey !== key) {
+      textCurrent.dataset.lyricKey = key;
+      textCurrent.textContent = line?.text || "";
+    }
+    return;
+  }
+  const segment = karaokeState(line, timeMS);
+  const key = `karaoke:${state.current?.id || ""}:${line.start}:${line.end}`;
+  if (textCurrent.dataset.lyricKey !== key || !textCurrent.querySelector(".lyric-progress")) {
+    textCurrent.dataset.lyricKey = key;
+    const before = document.createElement("span");
+    const wrapper = document.createElement("span");
+    const base = document.createElement("span");
+    const fill = document.createElement("span");
+    const after = document.createElement("span");
+    before.className = "lyric-sung";
+    wrapper.className = "lyric-progress";
+    base.className = "lyric-next";
+    fill.className = "lyric-sung";
+    fill.setAttribute("aria-hidden", "true");
+    after.className = "lyric-next";
+    wrapper.append(base, fill);
+    textCurrent.replaceChildren(before, wrapper, after);
+  }
+  const [before, wrapper, after] = textCurrent.children;
+  const [base, fill] = wrapper.children;
+  wrapper.classList.toggle("is-rtl", segment.rtl);
+  wrapper.style.setProperty("--lyric-fill", `${segment.progress * 100}%`);
+  before.textContent = segment.before;
+  base.textContent = segment.active;
+  fill.textContent = segment.active;
+  after.textContent = segment.after;
+}
+
+function animatePlayerRows(key) {
+  if (state.playerTextKey === key) return;
+  state.playerTextKey = key;
+  [textPrevious, textCurrent, textNext].forEach((row) => {
+    row.classList.remove("is-entering");
+    void row.offsetWidth;
+    row.classList.add("is-entering");
+  });
+}
+
+function renderPlayerText() {
+  const item = state.current;
+  if (!item) return;
+  const timeMS = audio.currentTime * 1000;
+  if (item.kind === "set") {
+    delete textCurrent.dataset.lyricKey;
+    const entries = eligibleEntries(item);
+    if (!entries.length) {
+      textPrevious.textContent = "";
+      textCurrent.textContent = "No song list available";
+      textNext.textContent = "";
+      playerText.disabled = true;
+      playerText.setAttribute("aria-label", "No song list available");
+      animatePlayerRows(`${item.id}:empty`);
+      return;
+    }
+    const index = currentIndexAt(entries, timeMS);
+    textPrevious.textContent = entries[index - 1]?.text || "";
+    textCurrent.textContent = entries[index]?.text || "";
+    textNext.textContent = entries[index + 1]?.text || "";
+    playerText.disabled = false;
+    playerText.setAttribute("aria-label", index >= 0
+      ? `Open full track list. Current song: ${entries[index].text}`
+      : `Open full track list. Next song: ${entries[0].text}`);
+    animatePlayerRows(`${item.id}:${index}`);
+    return;
+  }
+  const lines = state.lyricLines.filter((line) => !line.collapsed);
+  if (!lines.length) {
+    delete textCurrent.dataset.lyricKey;
+    textPrevious.textContent = "";
+    textCurrent.textContent = "No lyrics available";
+    textNext.textContent = "";
+    playerText.disabled = true;
+    playerText.setAttribute("aria-label", "No lyrics available");
+    animatePlayerRows(`${item.id}:empty`);
+    return;
+  }
+  const index = currentIndexAt(lines, timeMS);
+  textPrevious.textContent = lines[index - 1]?.text || "";
+  setPrimaryLyric(lines[index], timeMS, lines[index]?.karaoke);
+  textNext.textContent = lines[index + 1]?.text || "";
+  playerText.disabled = false;
+  playerText.setAttribute("aria-label", index >= 0
+    ? `Open full lyrics. Current lyric: ${lines[index].text}`
+    : `Open full lyrics. Next lyric: ${lines[0].text}`);
+  animatePlayerRows(`${item.id}:${index}`);
+}
+
+function animatePlayerTextWhilePlaying() {
+  if (playerTextFrame || !state.playRequested) return;
+  const frame = () => {
+    playerTextFrame = 0;
+    if (!state.playRequested) return;
+    if (state.current?.kind === "song") renderPlayerText();
+    playerTextFrame = requestAnimationFrame(frame);
+  };
+  playerTextFrame = requestAnimationFrame(frame);
+}
+
+function stopPlayerTextAnimation() {
+  if (playerTextFrame) cancelAnimationFrame(playerTextFrame);
+  playerTextFrame = 0;
+}
+
+function renderPlayerCues() {
+  const allEntries = state.current?.kind === "set" ? eligibleEntries() : [];
+  const duration = audio.duration || state.current?.duration_seconds || 0;
+  if (!duration || !allEntries.length) {
+    playerCues.replaceChildren();
+    return;
+  }
+  const buttons = allEntries.map((entry) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "timeline-cue";
+    button.style.left = `${Math.min(1, entry.time_ms / 1000 / duration) * 100}%`;
+    button.title = entry.text;
+    button.setAttribute("aria-label", `${entry.text}, ${formatDuration(entry.time_ms / 1000)}`);
+    button.addEventListener("click", (event) => {
+      audio.currentTime = event.detail
+        ? TouchzoukUI.pointerRatio(event, waveCanvas) * duration
+        : Math.min(entry.time_ms / 1000, duration);
+      paintProgress();
+    });
+    button.addEventListener("keydown", (event) => {
+      if (!["Enter", " "].includes(event.key)) return;
+      event.preventDefault();
+      audio.currentTime = Math.min(entry.time_ms / 1000, duration);
+      paintProgress();
+    });
+    return button;
+  });
+  playerCues.replaceChildren(...buttons);
+}
+
+function renderTextDialog() {
+  const item = state.current;
+  if (!item || playerText.disabled) {
+    if (textDialog.open) textDialog.close();
+    return;
+  }
+  const timeMS = audio.currentTime * 1000;
+  textDialogTitle.textContent = item.kind === "set" ? `${item.title} · track list` : `${item.title} · lyrics`;
+  copyLyrics.hidden = item.kind !== "song";
+  copyLyrics.title = "Copy lyrics";
+  copyLyrics.setAttribute("aria-label", "Copy lyrics");
+  copyLyricsStatus.textContent = "Copy lyrics";
+  copyLyricsIcon.removeAttribute("hidden");
+  copyLyricsSuccess.setAttribute("hidden", "");
+  const values = item.kind === "set" ? eligibleEntries(item) : state.lyricLines;
+  const current = currentIndexAt(values, timeMS);
+  textDialog.dataset.itemId = item.id;
+  const rows = values.map((value, index) => {
+    const row = document.createElement("div");
+    const time = document.createElement("time");
+    const copy = document.createElement("span");
+    row.className = `text-dialog-line${index === current ? " is-current" : ""}${value.collapsed ? " is-collapsed" : ""}`;
+    if (index === current) row.setAttribute("aria-current", "true");
+    if (item.kind === "set") {
+      const seekButton = document.createElement("button");
+      seekButton.type = "button";
+      seekButton.textContent = formatDuration(value.time_ms / 1000);
+      seekButton.setAttribute("aria-label", `Go to ${value.text} at ${seekButton.textContent}`);
+      seekButton.addEventListener("click", () => {
+        audio.currentTime = Math.min(value.time_ms / 1000, audio.duration || item.duration_seconds);
+        paintProgress();
+      });
+      row.append(seekButton, copy);
+    } else {
+      time.textContent = formatDuration(value.time_ms / 1000);
+      row.append(time, copy);
+    }
+    copy.textContent = value.text;
+    return row;
+  });
+  textDialogBody.replaceChildren(...rows);
+}
+
+function updateTextDialogCurrent() {
+  if (!textDialog.open || !state.current) return;
+  if (textDialog.dataset.itemId !== state.current.id) {
+    renderTextDialog();
+    return;
+  }
+  const values = state.current.kind === "set" ? eligibleEntries() : state.lyricLines;
+  const current = currentIndexAt(values, audio.currentTime * 1000);
+  textDialogBody.querySelectorAll(".text-dialog-line").forEach((row, index) => {
+    const isCurrent = index === current;
+    row.classList.toggle("is-current", isCurrent);
+    if (isCurrent) row.setAttribute("aria-current", "true");
+    else row.removeAttribute("aria-current");
+  });
+}
+
+playerText.addEventListener("click", () => {
+  if (playerText.disabled) return;
+  renderTextDialog();
+  textDialog.showModal();
+});
+
+copyLyrics.addEventListener("click", async () => {
+  if (state.current?.kind !== "song") return;
+  try {
+    const lyrics = state.lyricLines.map((line) => line.text).join("\n");
+    await TouchzoukUI.copyText(lyrics);
+    copyLyrics.title = "Lyrics copied";
+    copyLyrics.setAttribute("aria-label", "Lyrics copied");
+    copyLyricsStatus.textContent = "Lyrics copied";
+    copyLyricsIcon.setAttribute("hidden", "");
+    copyLyricsSuccess.removeAttribute("hidden");
+  } catch {
+    copyLyrics.title = "Copy failed";
+    copyLyrics.setAttribute("aria-label", "Copy failed");
+    copyLyricsStatus.textContent = "Copy failed";
+    copyLyricsIcon.removeAttribute("hidden");
+    copyLyricsSuccess.setAttribute("hidden", "");
+  }
+});
+
 TouchzoukUI.bindTrackSharing({
   button: shareButton,
   seeker: waveCanvas,
@@ -677,6 +1083,8 @@ async function selectItem(item, autoplay = false) {
   state.waveformRequest = request;
   if (state.pendingStart?.trackID !== item.id) state.pendingStart = null;
   state.current = item;
+  state.playerTextKey = "";
+  state.lyricLines = item.kind === "song" ? lyricLines(item) : [];
   state.category = item.kind;
   state.waveform = [];
   state.rebinned.clear();
@@ -696,6 +1104,9 @@ async function selectItem(item, autoplay = false) {
   setText("[data-now-kind]", item.kind);
   setText("[data-now-title]", item.title);
   setText("[data-now-subtitle]", item.subtitle || itemKicker(item));
+  renderPlayerText();
+  if (textDialog.open) renderTextDialog();
+  renderPlayerCues();
   document.querySelectorAll(".media-card").forEach((card) => card.classList.toggle("is-loaded", card.dataset.id === item.id));
   syncShuffleButton();
   drawWaveform();
@@ -937,10 +1348,12 @@ audio.addEventListener("play", () => {
     audio.pause();
     return;
   }
+  animatePlayerTextWhilePlaying();
   updatePlayState();
 });
 audio.addEventListener("pause", () => {
   if (!state.startingPlayback && !state.seeking) state.playRequested = false;
+  if (!state.playRequested) stopPlayerTextAnimation();
   updatePlayState();
 });
 function paintProgress() {
@@ -949,6 +1362,8 @@ function paintProgress() {
   const duration = formatDuration(audio.duration);
   setText("[data-current]", current);
   seek.setAttribute("aria-valuetext", `${current} of ${duration}`);
+  renderPlayerText();
+  updateTextDialogCurrent();
   requestWaveformDraw();
 }
 audio.addEventListener("timeupdate", paintProgress);
@@ -956,10 +1371,14 @@ audio.addEventListener("loadedmetadata", () => {
   const pending = state.pendingStart;
   state.pendingStart = null;
   if (pending?.trackID === state.current?.id) audio.currentTime = Math.min(pending.seconds, audio.duration);
+  state.lyricLines = state.current?.kind === "song" ? lyricLines(state.current, audio.duration) : [];
   setText("[data-duration]", formatDuration(audio.duration));
+  renderPlayerCues();
+  if (textDialog.open) renderTextDialog();
   paintProgress();
 });
 audio.addEventListener("ended", () => {
+  stopPlayerTextAnimation();
   if (state.repeat === 2) { audio.currentTime = 0; play(); return; }
   const item = adjacentItem(1);
   const atEnd = state.catalog[state.category].findIndex((candidate) => candidate.id === state.current.id) === state.catalog[state.category].length - 1;

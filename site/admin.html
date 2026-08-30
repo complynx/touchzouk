@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600&amp;family=Manrope:wght@300;400;500;600&amp;display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css?v=20">
-  <link rel="stylesheet" href="admin.css?v=21">
+  <link rel="stylesheet" href="admin.css?v=30">
 </head>
 <body class="admin-body">
   <a class="skip-link" href="#media-form">Skip to media form</a>
@@ -50,13 +50,25 @@
               <div class="asset-ready" data-audio-ready hidden>
                 <div class="audio-ready-heading"><div><strong data-audio-name>Audio ready</strong><span data-audio-detail></span></div><button class="quiet-button" data-rebuild-wave type="button" hidden>Rebuild wave</button></div>
                 <div class="admin-player" aria-label="Audio preview player">
-                  <button class="icon-control play-control" data-preview-play type="button" aria-label="Play audio preview" disabled><span></span></button>
+                  <div class="admin-player-controls">
+                    <button class="icon-control play-control" data-preview-play type="button" aria-label="Play audio preview" disabled><span></span></button>
+                    <label class="volume-control admin-volume"><span class="sr-only">Preview volume</span><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4z"></path><path d="M16 9.5c1.3 1.4 1.3 3.6 0 5M18.5 7c2.7 2.8 2.7 7.2 0 10"></path></svg><input data-preview-volume type="range" min="0" max="1" step="0.01" value="0.8" aria-label="Preview volume" aria-valuetext="80 percent"></label>
+                  </div>
                   <div class="media-wave-row admin-wave-row seek-surface">
                     <time data-preview-current>00:00</time>
-                    <div class="admin-seek-track media-seek-track"><canvas class="upload-waveform" data-upload-waveform height="52" aria-hidden="true"></canvas><input data-preview-seek type="range" min="0" max="1000" value="0" aria-label="Seek through audio preview" disabled></div>
+                    <div class="admin-seek-track media-seek-track"><canvas class="upload-waveform" data-upload-waveform height="52" aria-hidden="true"></canvas><div class="timeline-cues" data-preview-cues></div><input data-preview-seek type="range" min="0" max="1000" value="0" aria-label="Seek through audio preview" disabled></div>
                     <time data-preview-duration>00:00</time>
                   </div>
-                  <label class="volume-control admin-volume"><span class="sr-only">Preview volume</span><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4z"></path><path d="M16 9.5c1.3 1.4 1.3 3.6 0 5M18.5 7c2.7 2.8 2.7 7.2 0 10"></path></svg><input data-preview-volume type="range" min="0" max="1" step="0.01" value="0.8" aria-label="Preview volume" aria-valuetext="80 percent"></label>
+                  <div class="timeline-navigator" data-preview-navigator aria-label="Visible timeline range">
+                    <div class="timeline-window" data-timeline-window><button type="button" data-timeline-start aria-label="Resize visible range from start"></button><span data-timeline-drag role="button" tabindex="0" aria-label="Drag visible range"></span><button type="button" data-timeline-end aria-label="Resize visible range from end"></button></div>
+                  </div>
+                  <div class="timeline-toolbar" aria-label="Timeline navigation">
+                    <button type="button" data-timeline-action="zoom-out" aria-label="Zoom out" title="Zoom out">−</button>
+                    <button type="button" data-timeline-action="zoom-in" aria-label="Zoom in" title="Zoom in">+</button>
+                    <button type="button" data-timeline-action="left" aria-label="Move visible range left" title="Move left">←</button>
+                    <button type="button" data-timeline-action="right" aria-label="Move visible range right" title="Move right">→</button>
+                    <button type="button" data-timeline-follow aria-pressed="false">Follow playhead</button>
+                  </div>
                 </div>
                 <audio data-preview-audio preload="metadata"></audio>
               </div>
@@ -64,7 +76,7 @@
               <div class="asset-progress" data-audio-progress role="progressbar" aria-label="Audio upload" hidden><i></i></div>
             </div>
 
-            <div class="asset-upload cover-upload">
+            <div class="asset-upload cover-upload" data-cover-upload hidden>
               <input data-cover-input type="file" name="cover" accept=".jpg,.jpeg,.png,.webp,.avif,image/jpeg,image/png,image/webp,image/avif" hidden>
               <button class="file-drop cover-drop" data-file-drop="cover" type="button" aria-label="Choose a cover, or drop one here">
                 <img data-cover-preview alt="" hidden>
@@ -78,6 +90,20 @@
               <div class="asset-progress" data-cover-progress role="progressbar" aria-label="Cover upload" hidden><i></i></div>
             </div>
           </div>
+
+          <section class="timed-editor" data-timed-editor aria-label="Timed text editor">
+            <div class="timed-editor-heading"><strong data-timed-heading>Set songs</strong><label class="shift-toggle"><input data-shift-following type="checkbox" checked> Shift following markers</label></div>
+            <div data-set-timed-fields>
+              <label class="field field-wide"><span>Songs</span><textarea data-song-list-input rows="3" placeholder="One song per line"></textarea></label>
+              <div class="timed-actions"><button class="quiet-button" data-add-song type="button">Add song</button><button class="quiet-button" data-add-song-list type="button">Add list</button><button class="quiet-button" data-clear-songs type="button" disabled>Clear all</button></div>
+              <label class="playlist-drop" data-playlist-drop><input data-playlist-input type="file" accept=".m3u,.m3u8,.txt,audio/x-mpegurl" multiple><strong>Upload / drop VirtualDJ history</strong><span>Appends its songs using the playlist times.</span></label>
+              <div class="timed-list" data-timed-list></div>
+            </div>
+            <div data-song-timed-fields hidden>
+              <div class="lyrics-marker-preview" data-lyrics-editor contenteditable="true" role="textbox" aria-multiline="true" aria-label="Editable lyrics with timing markers" data-placeholder="Paste lyrics here"></div>
+              <div class="timed-actions"><button class="quiet-button" data-add-lyric-marker type="button">Add marker at cursor</button><button class="quiet-button" data-remove-lyric-marker type="button">Remove marker at cursor</button><button class="quiet-button" data-add-lyric-pause type="button">Add pause</button><button class="quiet-button" data-toggle-lyric-section type="button">Collapse selection</button><button class="quiet-button" data-jump-lyric-cursor type="button">Jump to cursor</button></div>
+            </div>
+          </section>
 
           <fieldset class="metadata-fields">
             <legend>Details</legend>
@@ -127,7 +153,7 @@
     </article>
   </template>
 
-  <script src="shared-ui.js?v=12"></script>
-  <script src="admin.js?v=32"></script>
+  <script src="shared-ui.js?v=13"></script>
+  <script src="admin.js?v=50"></script>
 </body>
 </html>

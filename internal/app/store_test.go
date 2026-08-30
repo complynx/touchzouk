@@ -19,6 +19,10 @@ func TestMediaRecordRoundTrip(t *testing.T) {
 		TelegramURL: "https://t.me/touchzouk/1", DurationSeconds: 123.5,
 		AudioPath: "audio/record.ogg", CoverPath: "covers/record.webp", CoverPosition: "40% 60%",
 		CoverZoom: 1.4, WaveformPath: "waveforms/record.json", CreatedAt: now,
+		TimedContent: TimedContent{Entries: []TimedEntry{
+			{Text: "Opening", TimeMS: 0},
+			{Text: "Closer", TimeMS: 180_000},
+		}},
 	}
 	require.NoError(t, store.Create(t.Context(), item))
 	stored, err := store.Get(t.Context(), item.ID)

@@ -7,3 +7,6 @@
 - Seeker lifecycle change: include pointer cancel or multi-pointer checks.
 - `bindSeeker` accepts primary pointer button only. Secondary click opens share-time context menu; never move playhead.
 - Atlas constellation order: prefer minimum interior angle `>=20deg`, then shortest valid non-crossing chain.
+- Atlas lyrics: expanded view has Copy action styled as existing icon controls. Compact current line stays clickable during playback. Karaoke font, line box, baseline = plain current lyric.
+- Karaoke segment boundaries must preserve natural spaces; current lyric uses `white-space: pre`.
+- Admin lyric pause = 1 virtual character. Before/after caret timing distinct. Timeline nav long-touch must not open context menu.

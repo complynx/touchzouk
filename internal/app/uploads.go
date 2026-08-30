@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -18,21 +19,22 @@ import (
 )
 
 type mediaInput struct {
-	AudioUploadID string   `json:"audio_upload_id"`
-	CoverUploadID string   `json:"cover_upload_id"`
-	Kind          string   `json:"kind"`
-	Title         string   `json:"title"`
-	Subtitle      string   `json:"subtitle"`
-	EventName     string   `json:"event_name"`
-	EventURL      string   `json:"event_url"`
-	LocationURL   string   `json:"location_url"`
-	PlayedAt      string   `json:"played_at"`
-	Country       string   `json:"country"`
-	City          string   `json:"city"`
-	Tags          string   `json:"tags"`
-	TelegramURL   string   `json:"telegram_url"`
-	CoverPosition *string  `json:"cover_position"`
-	CoverZoom     *float64 `json:"cover_zoom"`
+	AudioUploadID string        `json:"audio_upload_id"`
+	CoverUploadID string        `json:"cover_upload_id"`
+	Kind          string        `json:"kind"`
+	Title         string        `json:"title"`
+	Subtitle      string        `json:"subtitle"`
+	EventName     string        `json:"event_name"`
+	EventURL      string        `json:"event_url"`
+	LocationURL   string        `json:"location_url"`
+	PlayedAt      string        `json:"played_at"`
+	Country       string        `json:"country"`
+	City          string        `json:"city"`
+	Tags          string        `json:"tags"`
+	TelegramURL   string        `json:"telegram_url"`
+	CoverPosition *string       `json:"cover_position"`
+	CoverZoom     *float64      `json:"cover_zoom"`
+	TimedContent  *TimedContent `json:"timed_content"`
 }
 
 const (
@@ -692,7 +694,7 @@ func suggestedKind(duration float64) string {
 }
 
 func decodeMediaInput(w http.ResponseWriter, r *http.Request) (mediaInput, bool) {
-	r.Body = http.MaxBytesReader(w, r.Body, 32*1024)
+	r.Body = http.MaxBytesReader(w, r.Body, 512*1024)
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	var input mediaInput
@@ -734,6 +736,13 @@ func applyMediaInput(item *MediaItem, input mediaInput) error {
 	} else {
 		item.EventName, item.EventURL, item.LocationURL, item.Country, item.City = "", "", "", "", ""
 	}
+	if input.TimedContent != nil {
+		timedContent, err := cleanTimedContent(input.Kind, *input.TimedContent)
+		if err != nil {
+			return err
+		}
+		item.TimedContent = timedContent
+	}
 	if item.Title == "" {
 		return errors.New("title is required")
 	}
@@ -747,6 +756,117 @@ func applyMediaInput(item *MediaItem, input mediaInput) error {
 		return errors.New("telegram post must be a number or an http or https URL")
 	}
 	return nil
+}
+
+const (
+	maxTimedEntries = 500
+	maxLyricsRunes  = 100_000
+	maxTimedMS      = int64(7 * 24 * time.Hour / time.Millisecond)
+)
+
+func cleanTimedContent(kind string, content TimedContent) (TimedContent, error) {
+	if kind == mediaKindSet {
+		return cleanSetTimedContent(content.Entries)
+	}
+
+	return cleanLyricsTimedContent(content)
+}
+
+func cleanSetTimedContent(entries []TimedEntry) (TimedContent, error) {
+	if len(entries) > maxTimedEntries {
+		return TimedContent{}, errors.New("song list is too long")
+	}
+	cleaned := TimedContent{Entries: make([]TimedEntry, 0, len(entries))}
+	var previous int64 = -1
+	for _, entry := range entries {
+		entry.Text = cleanText(entry.Text, 180)
+		if entry.Text == "" {
+			continue
+		}
+		if entry.TimeMS < 0 || entry.TimeMS > maxTimedMS || entry.TimeMS <= previous {
+			return TimedContent{}, errors.New("song start times must be ordered at least 1 millisecond apart")
+		}
+		previous = entry.TimeMS
+		cleaned.Entries = append(cleaned.Entries, entry)
+	}
+	return cleaned, nil
+}
+
+func cleanLyricsTimedContent(content TimedContent) (TimedContent, error) {
+	text := strings.ReplaceAll(content.Text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+	hadBOM := strings.HasPrefix(text, "\ufeff")
+	text = strings.TrimPrefix(text, "\ufeff")
+	runes := []rune(text)
+	if len(runes) > maxLyricsRunes {
+		return TimedContent{}, errors.New("lyrics are too long")
+	}
+	if len(content.Markers) > maxTimedEntries || len(content.Pauses) > maxTimedEntries {
+		return TimedContent{}, errors.New("lyrics have too many timing marks")
+	}
+
+	markers, err := cleanLyricsMarkers(content.Markers, hadBOM, len(runes))
+	if err != nil {
+		return TimedContent{}, err
+	}
+	pauses, err := cleanLyricsPauses(content.Pauses, hadBOM, len(runes))
+	if err != nil {
+		return TimedContent{}, err
+	}
+	if text == "" {
+		markers = nil
+		pauses = nil
+	}
+	return TimedContent{Text: text, Markers: markers, Pauses: pauses}, nil
+}
+
+func cleanLyricsMarkers(source []TextMarker, hadBOM bool, lyricLength int) ([]TextMarker, error) {
+	markers := slices.Clone(source)
+	if hadBOM {
+		for index := range markers {
+			if markers[index].Offset > 0 {
+				markers[index].Offset--
+			}
+		}
+	}
+	slices.SortFunc(markers, func(left, right TextMarker) int {
+		if order := cmp.Compare(left.Offset, right.Offset); order != 0 {
+			return order
+		}
+		return cmp.Compare(left.TimeMS, right.TimeMS)
+	})
+	var previous *TextMarker
+	for index := range markers {
+		marker := markers[index]
+		if marker.Offset < 0 || marker.Offset > lyricLength || marker.TimeMS < 0 ||
+			marker.TimeMS > maxTimedMS || previous != nil && (marker.TimeMS < previous.TimeMS ||
+			marker.TimeMS == previous.TimeMS && marker.Offset == previous.Offset) {
+			return nil, errors.New(
+				"lyrics markers must follow the text; equal times may only collapse a section",
+			)
+		}
+		previous = &markers[index]
+	}
+	return markers, nil
+}
+
+func cleanLyricsPauses(source []int, hadBOM bool, lyricLength int) ([]int, error) {
+	pauses := slices.Clone(source)
+	if hadBOM {
+		for index := range pauses {
+			if pauses[index] > 0 {
+				pauses[index]--
+			}
+		}
+	}
+	slices.Sort(pauses)
+	pauses = slices.Compact(pauses)
+	for _, offset := range pauses {
+		if offset < 0 || offset > lyricLength {
+			return nil, errors.New("lyrics pause is outside the text")
+		}
+	}
+	return pauses, nil
 }
 
 func cleanCoverPosition(value string) string {

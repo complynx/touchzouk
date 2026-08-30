@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600&amp;family=Manrope:wght@300;400;500;600&amp;display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css?v=23">
-  <link rel="stylesheet" href="atlas.css?v=32">
+  <link rel="stylesheet" href="atlas.css?v=44">
 </head>
 <body class="atlas-body">
   <a class="skip-link" href="#atlas-catalog">Skip to music</a>
@@ -71,10 +71,16 @@
         </div>
         <span class="sr-only" data-share-status aria-live="polite"></span>
       </div>
-      <div class="player-wave-row media-wave-row seek-surface"><time data-current>00:00</time><div class="wave-canvas media-seek-track"><canvas data-player-waveform height="54" aria-hidden="true"></canvas><input data-seek type="range" min="0" max="1000" value="0" aria-label="Seek"></div><time data-duration>00:00</time></div>
+      <div class="player-wave-row media-wave-row seek-surface"><time data-current>00:00</time><div class="wave-canvas media-seek-track"><canvas data-player-waveform height="54" aria-hidden="true"></canvas><div class="timeline-cues public-cues" data-player-cues></div><input data-seek type="range" min="0" max="1000" value="0" aria-label="Seek"></div><time data-duration>00:00</time></div>
+      <button class="player-text" data-player-text type="button"><span data-text-previous></span><strong data-text-current></strong><span data-text-next></span></button>
     </div>
     <audio data-atlas-audio preload="metadata"></audio>
   </section>
+
+  <dialog class="text-dialog" data-text-dialog aria-labelledby="text-dialog-title">
+    <div class="text-dialog-heading"><h2 id="text-dialog-title" data-text-dialog-title>Track list</h2><div class="text-dialog-actions"><button class="icon-control text-copy" data-copy-lyrics type="button" aria-label="Copy lyrics" title="Copy lyrics" hidden><svg data-copy-icon aria-hidden="true" viewBox="0 0 24 24"><rect x="8" y="8" width="11" height="11" rx="1"></rect><path d="M16 8V5H5v11h3"></path></svg><svg data-copy-success aria-hidden="true" viewBox="0 0 24 24" hidden><path d="m5 12 4 4L19 6"></path></svg><span class="sr-only" data-copy-lyrics-status aria-live="polite">Copy lyrics</span></button><form method="dialog"><button class="icon-control" aria-label="Close"><span aria-hidden="true">×</span></button></form></div></div>
+    <div class="text-dialog-body" data-text-dialog-body></div>
+  </dialog>
 
   <template id="media-card-template">
     <article class="media-card">
@@ -84,7 +90,7 @@
     </article>
   </template>
 
-  <script src="shared-ui.js?v=12"></script>
-  <script src="atlas.js?v=48"></script>
+  <script src="shared-ui.js?v=13"></script>
+  <script src="atlas.js?v=68"></script>
 </body>
 </html>
