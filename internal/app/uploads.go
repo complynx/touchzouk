@@ -19,21 +19,21 @@ import (
 )
 
 type mediaInput struct {
-	AudioUploadID string       `json:"audio_upload_id"`
-	CoverUploadID string       `json:"cover_upload_id"`
-	Kind          string       `json:"kind"`
-	Title         string       `json:"title"`
-	Subtitle      string       `json:"subtitle"`
-	EventName     string       `json:"event_name"`
-	EventURL      string       `json:"event_url"`
-	LocationURL   string       `json:"location_url"`
-	PlayedAt      string       `json:"played_at"`
-	Country       string       `json:"country"`
-	City          string       `json:"city"`
-	Tags          string       `json:"tags"`
-	TelegramURL   string       `json:"telegram_url"`
-	CoverPosition *string      `json:"cover_position"`
-	CoverZoom     *float64     `json:"cover_zoom"`
+	AudioUploadID string        `json:"audio_upload_id"`
+	CoverUploadID string        `json:"cover_upload_id"`
+	Kind          string        `json:"kind"`
+	Title         string        `json:"title"`
+	Subtitle      string        `json:"subtitle"`
+	EventName     string        `json:"event_name"`
+	EventURL      string        `json:"event_url"`
+	LocationURL   string        `json:"location_url"`
+	PlayedAt      string        `json:"played_at"`
+	Country       string        `json:"country"`
+	City          string        `json:"city"`
+	Tags          string        `json:"tags"`
+	TelegramURL   string        `json:"telegram_url"`
+	CoverPosition *string       `json:"cover_position"`
+	CoverZoom     *float64      `json:"cover_zoom"`
 	TimedContent  *TimedContent `json:"timed_content"`
 }
 
@@ -758,32 +758,41 @@ func applyMediaInput(item *MediaItem, input mediaInput) error {
 	return nil
 }
 
+const (
+	maxTimedEntries = 500
+	maxLyricsRunes  = 100_000
+	maxTimedMS      = int64(7 * 24 * time.Hour / time.Millisecond)
+)
+
 func cleanTimedContent(kind string, content TimedContent) (TimedContent, error) {
-	const (
-		maxEntries     = 500
-		maxLyricsRunes = 100_000
-		maxTimeMS      = int64(7 * 24 * time.Hour / time.Millisecond)
-	)
 	if kind == mediaKindSet {
-		if len(content.Entries) > maxEntries {
-			return TimedContent{}, errors.New("song list is too long")
-		}
-		cleaned := TimedContent{Entries: make([]TimedEntry, 0, len(content.Entries))}
-		var previous int64 = -1
-		for _, entry := range content.Entries {
-			entry.Text = cleanText(entry.Text, 180)
-			if entry.Text == "" {
-				continue
-			}
-			if entry.TimeMS < 0 || entry.TimeMS > maxTimeMS || entry.TimeMS <= previous {
-				return TimedContent{}, errors.New("song start times must be ordered at least 1 millisecond apart")
-			}
-			previous = entry.TimeMS
-			cleaned.Entries = append(cleaned.Entries, entry)
-		}
-		return cleaned, nil
+		return cleanSetTimedContent(content.Entries)
 	}
 
+	return cleanLyricsTimedContent(content)
+}
+
+func cleanSetTimedContent(entries []TimedEntry) (TimedContent, error) {
+	if len(entries) > maxTimedEntries {
+		return TimedContent{}, errors.New("song list is too long")
+	}
+	cleaned := TimedContent{Entries: make([]TimedEntry, 0, len(entries))}
+	var previous int64 = -1
+	for _, entry := range entries {
+		entry.Text = cleanText(entry.Text, 180)
+		if entry.Text == "" {
+			continue
+		}
+		if entry.TimeMS < 0 || entry.TimeMS > maxTimedMS || entry.TimeMS <= previous {
+			return TimedContent{}, errors.New("song start times must be ordered at least 1 millisecond apart")
+		}
+		previous = entry.TimeMS
+		cleaned.Entries = append(cleaned.Entries, entry)
+	}
+	return cleaned, nil
+}
+
+func cleanLyricsTimedContent(content TimedContent) (TimedContent, error) {
 	text := strings.ReplaceAll(content.Text, "\r\n", "\n")
 	text = strings.ReplaceAll(text, "\r", "\n")
 	hadBOM := strings.HasPrefix(text, "\ufeff")
@@ -792,10 +801,27 @@ func cleanTimedContent(kind string, content TimedContent) (TimedContent, error) 
 	if len(runes) > maxLyricsRunes {
 		return TimedContent{}, errors.New("lyrics are too long")
 	}
-	if len(content.Markers) > maxEntries || len(content.Pauses) > maxEntries {
+	if len(content.Markers) > maxTimedEntries || len(content.Pauses) > maxTimedEntries {
 		return TimedContent{}, errors.New("lyrics have too many timing marks")
 	}
-	markers := slices.Clone(content.Markers)
+
+	markers, err := cleanLyricsMarkers(content.Markers, hadBOM, len(runes))
+	if err != nil {
+		return TimedContent{}, err
+	}
+	pauses, err := cleanLyricsPauses(content.Pauses, hadBOM, len(runes))
+	if err != nil {
+		return TimedContent{}, err
+	}
+	if text == "" {
+		markers = nil
+		pauses = nil
+	}
+	return TimedContent{Text: text, Markers: markers, Pauses: pauses}, nil
+}
+
+func cleanLyricsMarkers(source []TextMarker, hadBOM bool, lyricLength int) ([]TextMarker, error) {
+	markers := slices.Clone(source)
 	if hadBOM {
 		for index := range markers {
 			if markers[index].Offset > 0 {
@@ -812,14 +838,20 @@ func cleanTimedContent(kind string, content TimedContent) (TimedContent, error) 
 	var previous *TextMarker
 	for index := range markers {
 		marker := markers[index]
-		if marker.Offset < 0 || marker.Offset > len(runes) || marker.TimeMS < 0 ||
-			marker.TimeMS > maxTimeMS || previous != nil && (marker.TimeMS < previous.TimeMS ||
+		if marker.Offset < 0 || marker.Offset > lyricLength || marker.TimeMS < 0 ||
+			marker.TimeMS > maxTimedMS || previous != nil && (marker.TimeMS < previous.TimeMS ||
 			marker.TimeMS == previous.TimeMS && marker.Offset == previous.Offset) {
-			return TimedContent{}, errors.New("lyrics markers must follow the text; equal times may only collapse a section")
+			return nil, errors.New(
+				"lyrics markers must follow the text; equal times may only collapse a section",
+			)
 		}
 		previous = &markers[index]
 	}
-	pauses := slices.Clone(content.Pauses)
+	return markers, nil
+}
+
+func cleanLyricsPauses(source []int, hadBOM bool, lyricLength int) ([]int, error) {
+	pauses := slices.Clone(source)
 	if hadBOM {
 		for index := range pauses {
 			if pauses[index] > 0 {
@@ -830,15 +862,11 @@ func cleanTimedContent(kind string, content TimedContent) (TimedContent, error) 
 	slices.Sort(pauses)
 	pauses = slices.Compact(pauses)
 	for _, offset := range pauses {
-		if offset < 0 || offset > len(runes) {
-			return TimedContent{}, errors.New("lyrics pause is outside the text")
+		if offset < 0 || offset > lyricLength {
+			return nil, errors.New("lyrics pause is outside the text")
 		}
 	}
-	if text == "" {
-		markers = nil
-		pauses = nil
-	}
-	return TimedContent{Text: text, Markers: markers, Pauses: pauses}, nil
+	return pauses, nil
 }
 
 func cleanCoverPosition(value string) string {
