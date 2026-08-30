@@ -16,50 +16,71 @@ import (
 )
 
 type MediaItem struct {
-	ID              string    `json:"id"`
-	Kind            string    `json:"kind"`
-	Title           string    `json:"title"`
-	Subtitle        string    `json:"subtitle,omitempty"`
-	EventName       string    `json:"event_name,omitempty"`
-	EventURL        string    `json:"event_url,omitempty"`
-	LocationURL     string    `json:"location_url,omitempty"`
-	PlayedAt        string    `json:"played_at,omitempty"`
-	Country         string    `json:"country,omitempty"`
-	City            string    `json:"city,omitempty"`
-	Tags            []string  `json:"tags,omitempty"`
-	TelegramURL     string    `json:"telegram_url,omitempty"`
-	DurationSeconds float64   `json:"duration_seconds"`
-	CoverURL        string    `json:"cover_url"`
-	CoverPosition   string    `json:"cover_position"`
-	CoverZoom       float64   `json:"cover_zoom"`
-	AudioURL        string    `json:"audio_url"`
-	WaveformURL     string    `json:"waveform_url"`
-	CreatedAt       time.Time `json:"created_at"`
-	AudioPath       string    `json:"-"`
-	CoverPath       string    `json:"-"`
-	WaveformPath    string    `json:"-"`
+	ID              string       `json:"id"`
+	Kind            string       `json:"kind"`
+	Title           string       `json:"title"`
+	Subtitle        string       `json:"subtitle,omitempty"`
+	EventName       string       `json:"event_name,omitempty"`
+	EventURL        string       `json:"event_url,omitempty"`
+	LocationURL     string       `json:"location_url,omitempty"`
+	PlayedAt        string       `json:"played_at,omitempty"`
+	Country         string       `json:"country,omitempty"`
+	City            string       `json:"city,omitempty"`
+	Tags            []string     `json:"tags,omitempty"`
+	TelegramURL     string       `json:"telegram_url,omitempty"`
+	DurationSeconds float64      `json:"duration_seconds"`
+	CoverURL        string       `json:"cover_url"`
+	CoverPosition   string       `json:"cover_position"`
+	CoverZoom       float64      `json:"cover_zoom"`
+	AudioURL        string       `json:"audio_url"`
+	WaveformURL     string       `json:"waveform_url"`
+	TimedContent    TimedContent `json:"timed_content"`
+	CreatedAt       time.Time    `json:"created_at"`
+	AudioPath       string       `json:"-"`
+	CoverPath       string       `json:"-"`
+	WaveformPath    string       `json:"-"`
 }
 
 type mediaRecord struct {
-	ID              string    `db:"id"`
-	Kind            string    `db:"kind"`
-	Title           string    `db:"title"`
-	Subtitle        string    `db:"subtitle"`
-	EventName       string    `db:"event_name"`
-	EventURL        string    `db:"event_url"`
-	LocationURL     string    `db:"location_url"`
-	PlayedAt        string    `db:"played_at"`
-	Country         string    `db:"country"`
-	City            string    `db:"city"`
-	TagsJSON        string    `db:"tags_json"`
-	TelegramURL     string    `db:"telegram_url"`
-	DurationSeconds float64   `db:"duration_seconds"`
-	AudioPath       string    `db:"audio_path"`
-	CoverPath       string    `db:"cover_path"`
-	CoverPosition   string    `db:"cover_position"`
-	CoverZoom       float64   `db:"cover_zoom"`
-	WaveformPath    string    `db:"waveform_path"`
-	CreatedAt       time.Time `db:"created_at"`
+	ID               string    `db:"id"`
+	Kind             string    `db:"kind"`
+	Title            string    `db:"title"`
+	Subtitle         string    `db:"subtitle"`
+	EventName        string    `db:"event_name"`
+	EventURL         string    `db:"event_url"`
+	LocationURL      string    `db:"location_url"`
+	PlayedAt         string    `db:"played_at"`
+	Country          string    `db:"country"`
+	City             string    `db:"city"`
+	TagsJSON         string    `db:"tags_json"`
+	TelegramURL      string    `db:"telegram_url"`
+	DurationSeconds  float64   `db:"duration_seconds"`
+	AudioPath        string    `db:"audio_path"`
+	CoverPath        string    `db:"cover_path"`
+	CoverPosition    string    `db:"cover_position"`
+	CoverZoom        float64   `db:"cover_zoom"`
+	WaveformPath     string    `db:"waveform_path"`
+	TimedContentJSON string    `db:"timed_content_json"`
+	CreatedAt        time.Time `db:"created_at"`
+}
+
+type TimedEntry struct {
+	Text   string `json:"text"`
+	TimeMS int64  `json:"time_ms"`
+}
+
+type TextMarker struct {
+	Offset int   `json:"offset"`
+	TimeMS int64 `json:"time_ms"`
+}
+
+// TimedContent stores set track starts or a song's lyrics and text markers.
+// Consecutive lyric markers with the same time collapse the text between them.
+type TimedContent struct {
+	Entries []TimedEntry `json:"entries,omitempty"`
+	Text    string       `json:"text,omitempty"`
+	Markers []TextMarker `json:"markers,omitempty"`
+	Pauses  []int        `json:"pauses,omitempty"`
 }
 
 func newMediaRecord(item MediaItem) (mediaRecord, error) {
@@ -73,13 +94,17 @@ func newMediaRecord(item MediaItem) (mediaRecord, error) {
 	if err != nil {
 		return mediaRecord{}, err
 	}
+	timedContent, err := json.Marshal(item.TimedContent)
+	if err != nil {
+		return mediaRecord{}, err
+	}
 	return mediaRecord{
 		ID: item.ID, Kind: item.Kind, Title: item.Title, Subtitle: item.Subtitle,
 		EventName: item.EventName, EventURL: item.EventURL, LocationURL: item.LocationURL, PlayedAt: item.PlayedAt,
 		Country: item.Country, City: item.City, TagsJSON: string(tags), TelegramURL: item.TelegramURL,
 		DurationSeconds: item.DurationSeconds, AudioPath: item.AudioPath, CoverPath: item.CoverPath,
 		CoverPosition: item.CoverPosition, CoverZoom: item.CoverZoom,
-		WaveformPath: item.WaveformPath, CreatedAt: item.CreatedAt,
+		WaveformPath: item.WaveformPath, TimedContentJSON: string(timedContent), CreatedAt: item.CreatedAt,
 	}, nil
 }
 
@@ -95,6 +120,9 @@ func (record mediaRecord) mediaItem() (MediaItem, error) {
 	}
 	if err := json.Unmarshal([]byte(record.TagsJSON), &item.Tags); err != nil {
 		return MediaItem{}, fmt.Errorf("decode tags for %s: %w", item.ID, err)
+	}
+	if err := json.Unmarshal([]byte(record.TimedContentJSON), &item.TimedContent); err != nil {
+		return MediaItem{}, fmt.Errorf("decode timed content for %s: %w", item.ID, err)
 	}
 	return item, nil
 }
@@ -167,6 +195,7 @@ CREATE TABLE IF NOT EXISTS media_items (
     cover_position TEXT NOT NULL DEFAULT '50% 50%',
     cover_zoom DOUBLE PRECISION NOT NULL DEFAULT 1,
     waveform_path TEXT NOT NULL,
+    timed_content_json TEXT NOT NULL DEFAULT '{}',
     created_at TIMESTAMP NOT NULL
 );
 CREATE INDEX IF NOT EXISTS media_items_kind_created_idx ON media_items(kind, created_at DESC);`
@@ -203,7 +232,17 @@ CREATE TABLE IF NOT EXISTS upload_drafts (
 	if err := s.ensureMediaLocationURL(ctx); err != nil {
 		return fmt.Errorf("migrate location URL: %w", err)
 	}
+	if err := s.ensureMediaTimedContent(ctx); err != nil {
+		return fmt.Errorf("migrate timed content: %w", err)
+	}
 	return nil
+}
+
+func (s *Store) ensureMediaTimedContent(ctx context.Context) error {
+	const postgresQuery = `ALTER TABLE media_items
+ADD COLUMN IF NOT EXISTS timed_content_json TEXT NOT NULL DEFAULT '{}'`
+	const sqliteQuery = `ALTER TABLE media_items ADD COLUMN timed_content_json TEXT NOT NULL DEFAULT '{}'`
+	return s.ensureMediaColumn(ctx, "timed_content_json", postgresQuery, sqliteQuery)
 }
 
 func (s *Store) ensureMediaLocationURL(ctx context.Context) error {
@@ -277,11 +316,12 @@ func (s *Store) bind(query string) string {
 
 const insertMediaQuery = `INSERT INTO media_items (
 id, kind, title, subtitle, event_name, event_url, location_url, played_at, country, city,
-tags_json, telegram_url, duration_seconds, audio_path, cover_path, cover_position, cover_zoom, waveform_path, created_at
+tags_json, telegram_url, duration_seconds, audio_path, cover_path, cover_position, cover_zoom, waveform_path,
+timed_content_json, created_at
 ) VALUES (
 :id, :kind, :title, :subtitle, :event_name, :event_url, :location_url, :played_at, :country, :city,
 :tags_json, :telegram_url, :duration_seconds, :audio_path, :cover_path, :cover_position,
-:cover_zoom, :waveform_path, :created_at
+:cover_zoom, :waveform_path, :timed_content_json, :created_at
 )`
 
 func (s *Store) Create(ctx context.Context, item MediaItem) error {
@@ -412,7 +452,8 @@ kind = :kind, title = :title, subtitle = :subtitle, event_name = :event_name,
 event_url = :event_url, location_url = :location_url, played_at = :played_at, country = :country, city = :city,
 tags_json = :tags_json, telegram_url = :telegram_url, duration_seconds = :duration_seconds,
 audio_path = :audio_path, cover_path = :cover_path, cover_position = :cover_position,
-cover_zoom = :cover_zoom, waveform_path = :waveform_path WHERE id = :id`, record)
+cover_zoom = :cover_zoom, waveform_path = :waveform_path,
+timed_content_json = :timed_content_json WHERE id = :id`, record)
 	if err != nil {
 		return err
 	}
@@ -694,7 +735,7 @@ func (s *Store) SettingsWithPrefix(ctx context.Context, prefix string) (map[stri
 
 const selectMediaColumns = `id, kind, title, subtitle, event_name, event_url, location_url, played_at,
 country, city, tags_json, telegram_url, duration_seconds, audio_path, cover_path,
-cover_position, cover_zoom, waveform_path, created_at`
+cover_position, cover_zoom, waveform_path, timed_content_json, created_at`
 
 func (s *Store) List(ctx context.Context, kind string) ([]MediaItem, error) {
 	query := s.bind(`SELECT ` + selectMediaColumns + `

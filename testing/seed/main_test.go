@@ -3,14 +3,78 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+	"unicode"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/complynx/touchzouk/internal/app"
 )
+
+func TestCatalogLyricsFixturesCoverBothTimingModesAndCollapsedSections(t *testing.T) {
+	items := catalog("site", "assets")
+	find := func(id string) app.TimedContent {
+		for _, item := range items {
+			if item.ID == id {
+				return item.TimedContent
+			}
+		}
+		t.Fatalf("missing seed item %s", id)
+		return app.TimedContent{}
+	}
+	check := func(content app.TimedContent, karaoke bool, minimumCollapsed int) {
+		runes := []rune(content.Text)
+		collapsed := 0
+		interiorCollapsed := 0
+		for index, marker := range content.Markers {
+			assert.LessOrEqual(t, marker.Offset, len(runes))
+			if index > 0 {
+				assert.GreaterOrEqual(t, marker.TimeMS, content.Markers[index-1].TimeMS)
+				if marker.TimeMS == content.Markers[index-1].TimeMS && marker.Offset > content.Markers[index-1].Offset {
+					collapsed++
+					if content.Markers[index-1].Offset > 0 && marker.Offset < len(runes) {
+						interiorCollapsed++
+					}
+				}
+			}
+		}
+		assert.GreaterOrEqual(t, collapsed, minimumCollapsed)
+		assert.GreaterOrEqual(t, interiorCollapsed, 1)
+		start := 0
+		for _, line := range strings.Split(content.Text, "\n") {
+			end := start + len([]rune(line))
+			if !strings.HasPrefix(line, "[") {
+				markers := 0
+				for _, marker := range content.Markers {
+					if marker.Offset >= start && marker.Offset <= end && marker.Offset < len(runes) {
+						markers++
+					}
+				}
+				if karaoke {
+					assert.Greater(t, markers, 1, line)
+				} else {
+					assert.Equal(t, 1, markers, line)
+				}
+			}
+			start = end + 1
+		}
+	}
+
+	pulse := find("seed-song-pulse")
+	check(pulse, true, 2)
+	pulseRunes := []rune(pulse.Text)
+	hasInsideWordPause := false
+	for _, offset := range pulse.Pauses {
+		if offset > 0 && offset < len(pulseRunes) && !unicode.IsSpace(pulseRunes[offset-1]) && !unicode.IsSpace(pulseRunes[offset]) {
+			hasInsideWordPause = true
+		}
+	}
+	assert.True(t, hasInsideWordPause)
+	check(find("seed-song-moon"), false, 3)
+}
 
 func TestRefreshSeedItemConvergesMetadataAndAssets(t *testing.T) {
 	dataDir := t.TempDir()

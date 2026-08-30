@@ -283,6 +283,7 @@
     bindPointerShine,
     bindSeeker,
     bindTrackSharing,
+    copyText,
     coverValues,
     createLocationLink,
     playbackRequest,
