@@ -470,6 +470,27 @@ timed_content_json = :timed_content_json WHERE id = :id`, record)
 	return tx.Commit()
 }
 
+func (s *Store) UpdateTimedContent(ctx context.Context, id string, content TimedContent) error {
+	encoded, err := json.Marshal(content)
+	if err != nil {
+		return err
+	}
+	result, err := s.db.ExecContext(
+		ctx,
+		s.bind(`UPDATE media_items SET timed_content_json = ? WHERE id = ?`),
+		string(encoded),
+		id,
+	)
+	if err != nil {
+		return err
+	}
+	count, err := result.RowsAffected()
+	if err == nil && count == 0 {
+		return ErrNotFound
+	}
+	return err
+}
+
 func (s *Store) reconcileMediaKind(ctx context.Context, tx *sqlx.Tx, id, previousKind, currentKind string) error {
 	if previousKind == currentKind {
 		return nil

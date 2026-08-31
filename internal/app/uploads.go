@@ -37,6 +37,11 @@ type mediaInput struct {
 	TimedContent  *TimedContent `json:"timed_content"`
 }
 
+type timedContentInput struct {
+	Kind         string        `json:"kind"`
+	TimedContent *TimedContent `json:"timed_content"`
+}
+
 const (
 	publishJournalPrefix          = "publishing:"
 	coverReplacementJournalPrefix = "cover-replacement:"
@@ -694,22 +699,47 @@ func suggestedKind(duration float64) string {
 }
 
 func decodeMediaInput(w http.ResponseWriter, r *http.Request) (mediaInput, bool) {
-	r.Body = http.MaxBytesReader(w, r.Body, 512*1024)
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	var input mediaInput
-	if err := decoder.Decode(&input); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid metadata"})
-		return mediaInput{}, false
-	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid metadata"})
+	input, ok := decodeStrictInput[mediaInput](w, r, "invalid metadata")
+	if !ok {
 		return mediaInput{}, false
 	}
 	input.Kind = strings.ToLower(strings.TrimSpace(input.Kind))
 	if input.Kind != mediaKindSet && input.Kind != mediaKindSong {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "kind must be set or song"})
 		return mediaInput{}, false
+	}
+	return input, true
+}
+
+func decodeStrictInput[T any](w http.ResponseWriter, r *http.Request, message string) (T, bool) {
+	r.Body = http.MaxBytesReader(w, r.Body, 512*1024)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	var input T
+	if err := decoder.Decode(&input); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": message})
+		return input, false
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": message})
+		return input, false
+	}
+	return input, true
+}
+
+func decodeTimedContentInput(w http.ResponseWriter, r *http.Request) (timedContentInput, bool) {
+	input, ok := decodeStrictInput[timedContentInput](w, r, "invalid timed content")
+	if !ok {
+		return timedContentInput{}, false
+	}
+	input.Kind = strings.ToLower(strings.TrimSpace(input.Kind))
+	if input.Kind != mediaKindSet && input.Kind != mediaKindSong {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "kind must be set or song"})
+		return timedContentInput{}, false
+	}
+	if input.TimedContent == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "timed_content is required"})
+		return timedContentInput{}, false
 	}
 	return input, true
 }
@@ -1088,6 +1118,34 @@ func (a *App) editMedia(w http.ResponseWriter, r *http.Request, input mediaInput
 	}
 	a.addMediaURLs(&item)
 	writeJSON(w, http.StatusOK, item)
+}
+
+func (a *App) editTimedContent(w http.ResponseWriter, r *http.Request, input timedContentInput) {
+	a.mediaEditMu.Lock()
+	defer a.mediaEditMu.Unlock()
+	item, err := a.store.Get(r.Context(), r.PathValue("id"))
+	if errors.Is(err, ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "media item not found"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not load media item"})
+		return
+	}
+	if item.Kind != input.Kind {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "media kind changed; reopen the editor"})
+		return
+	}
+	timedContent, err := cleanTimedContent(item.Kind, *input.TimedContent)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := a.store.UpdateTimedContent(r.Context(), item.ID, timedContent); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not save timed content"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"id": item.ID, "timed_content": timedContent})
 }
 
 func (a *App) prepareCoverReplacement(

@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
@@ -13,10 +14,13 @@ import (
 	"golang.org/x/oauth2"
 )
 
-func TestSignedSessionRejectsTampering(t *testing.T) {
+func TestEncryptedSessionRejectsTampering(t *testing.T) {
 	auth := &Authenticator{cfg: AuthConfig{SecureCookies: false}, key: []byte(strings.Repeat("s", 32)), now: time.Now}
 	recorder := httptest.NewRecorder()
-	auth.setSession(recorder, AdminIdentity{Subject: "admin", Name: "Admin", Expires: time.Now().Add(time.Hour).Unix()})
+	require.NoError(t, auth.setSession(
+		recorder,
+		AdminIdentity{Subject: "admin", Name: "Admin", Expires: time.Now().Add(time.Hour).Unix()},
+	))
 	cookie := recorder.Result().Cookies()[0]
 	request := httptest.NewRequestWithContext(t.Context(), "GET", "/admin", nil)
 	request.AddCookie(cookie)
@@ -27,6 +31,111 @@ func TestSignedSessionRejectsTampering(t *testing.T) {
 	tampered.AddCookie(cookie)
 	_, ok = auth.Identity(tampered)
 	require.False(t, ok, "tampered session was accepted")
+}
+
+func TestRefreshableSessionEncryptsRefreshToken(t *testing.T) {
+	now := time.Now()
+	auth := &Authenticator{
+		cfg: AuthConfig{}, key: []byte(strings.Repeat("s", 32)),
+		now: func() time.Time { return now },
+	}
+	recorder := httptest.NewRecorder()
+	identity := AdminIdentity{Subject: "admin", Name: "Admin", Expires: time.Now().Add(time.Hour).Unix()}
+	require.NoError(t, auth.setRefreshableSession(recorder, identity, "secret-refresh-token"))
+	cookie := recorder.Result().Cookies()[0]
+	assert.NotContains(t, cookie.Value, "secret-refresh-token")
+
+	request := httptest.NewRequestWithContext(t.Context(), "GET", "/admin", nil)
+	request.AddCookie(cookie)
+	session, err := auth.readSession(request)
+	require.NoError(t, err)
+	assert.Equal(t, identity, session.Identity)
+	assert.Equal(t, "secret-refresh-token", session.RefreshToken)
+	assert.Equal(t, now.Add(refreshCookieLife).Unix(), session.RefreshUntil)
+
+	now = now.Add(refreshCookieLife + time.Second)
+	_, err = auth.readSession(request)
+	assert.Error(t, err)
+}
+
+func TestObsoleteSignedSessionRequiresLogin(t *testing.T) {
+	auth := &Authenticator{cfg: AuthConfig{}, key: []byte(strings.Repeat("s", 32)), now: time.Now}
+	identity := AdminIdentity{Subject: "admin", Name: "Admin", Expires: time.Now().Add(time.Hour).Unix()}
+	contents, err := json.Marshal(identity)
+	require.NoError(t, err)
+	recorder := httptest.NewRecorder()
+	auth.setSignedCookie(recorder, sessionCookieName, string(contents), time.Hour)
+
+	request := httptest.NewRequestWithContext(t.Context(), "GET", "/admin", nil)
+	request.AddCookie(recorder.Result().Cookies()[0])
+	_, ok := auth.Identity(request)
+	assert.False(t, ok)
+}
+
+func TestRefreshSessionRequiresLoginAfterInvalidGrant(t *testing.T) {
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_grant"})
+	}))
+	defer tokenServer.Close()
+	now := time.Now()
+	auth := &Authenticator{
+		cfg:   AuthConfig{Mode: authModeZitadel},
+		key:   []byte(strings.Repeat("s", 32)),
+		now:   func() time.Time { return now },
+		oauth: oauth2.Config{ClientID: "client", Endpoint: oauth2.Endpoint{TokenURL: tokenServer.URL}},
+	}
+	recorder := httptest.NewRecorder()
+	require.NoError(t, auth.setRefreshableSession(
+		recorder,
+		AdminIdentity{Subject: "admin", Name: "Admin", Expires: now.Add(-time.Minute).Unix()},
+		"invalid-refresh-token",
+	))
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/admin/session/refresh", nil)
+	request.AddCookie(recorder.Result().Cookies()[0])
+
+	_, err := auth.RefreshSession(httptest.NewRecorder(), request)
+	assert.ErrorIs(t, err, errRefreshLoginRequired)
+}
+
+func TestLogoutRevokesRefreshToken(t *testing.T) {
+	var revokedToken, clientID, clientSecret string
+	var requestErr error
+	revokeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestErr = r.ParseForm()
+		if requestErr != nil {
+			http.Error(w, "invalid form", http.StatusBadRequest)
+			return
+		}
+		revokedToken = r.Form.Get("token")
+		clientID, clientSecret, _ = r.BasicAuth()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer revokeServer.Close()
+	auth := &Authenticator{
+		cfg: AuthConfig{
+			Mode:    authModeZitadel,
+			Zitadel: ZitadelConfig{ClientID: "client", ClientSecret: "secret"},
+		},
+		key: []byte(strings.Repeat("s", 32)), revokeURL: revokeServer.URL, now: time.Now,
+	}
+	sessionRecorder := httptest.NewRecorder()
+	require.NoError(t, auth.setRefreshableSession(
+		sessionRecorder,
+		AdminIdentity{Subject: "admin", Name: "Admin", Expires: time.Now().Add(time.Hour).Unix()},
+		"refresh-token",
+	))
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/auth/logout", nil)
+	request.AddCookie(sessionRecorder.Result().Cookies()[0])
+	response := httptest.NewRecorder()
+
+	auth.Logout(response, request)
+	require.NoError(t, requestErr)
+	assert.Equal(t, http.StatusSeeOther, response.Code)
+	assert.Equal(t, "refresh-token", revokedToken)
+	assert.Equal(t, "client", clientID)
+	assert.Equal(t, "secret", clientSecret)
+	require.NoError(t, response.Result().Cookies()[0].Valid())
+	assert.Equal(t, -1, response.Result().Cookies()[0].MaxAge)
 }
 
 func TestHasProjectRole(t *testing.T) {
@@ -42,6 +151,10 @@ func TestHasProjectRoleDoesNotFallBackToAnotherProject(t *testing.T) {
 		"urn:zitadel:iam:org:project:roles": map[string]any{"admin": map[string]any{"org": "example"}},
 	}
 	assert.False(t, hasProjectRole(claims, "configured-project", "admin"))
+}
+
+func TestZitadelScopesRequestRefreshTokens(t *testing.T) {
+	assert.Contains(t, zitadelScopes("project"), "offline_access")
 }
 
 func TestOIDCFlowIsStoredInSignedCookie(t *testing.T) {

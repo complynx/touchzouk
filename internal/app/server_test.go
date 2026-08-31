@@ -178,6 +178,24 @@ func TestAdminAPIRequiresLogin(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, recorder.Code)
 }
 
+func TestAdminStubSessionRefreshes(t *testing.T) {
+	application := testApp(t)
+	now := time.Now()
+	application.auth.now = func() time.Time { return now }
+	server := httptest.NewServer(application.Handler())
+	defer server.Close()
+	client := authenticatedTestClient(t, server.URL)
+	now = now.Add(11 * time.Hour)
+
+	response, err := client.Do(newClientRequest(t, http.MethodPost, server.URL+"/api/admin/session/refresh", nil))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, response.Body.Close()) }()
+	require.Equal(t, http.StatusOK, response.StatusCode)
+	var identity AdminIdentity
+	require.NoError(t, json.NewDecoder(response.Body).Decode(&identity))
+	assert.Equal(t, now.Add(stubSessionLength).Unix(), identity.Expires)
+}
+
 func TestExpiredUploadCleanupRemovesFilesAndRows(t *testing.T) {
 	application := testApp(t)
 	relative := filepath.ToSlash(filepath.Join("uploads", "audio", "expired.ogg"))
@@ -454,12 +472,55 @@ func TestUpdateMediaRejectsUnknownAndTrailingMetadata(t *testing.T) {
 	assert.Equal(t, item.Title, stored.Title)
 }
 
+func TestUpdateTimedContentPreservesMetadata(t *testing.T) {
+	application := testApp(t)
+	item := MediaItem{
+		ID: "autosave-set", Kind: mediaKindSet, Title: "Keep this title", Subtitle: "Keep this subtitle",
+		CoverZoom: 1, CreatedAt: time.Now(),
+	}
+	require.NoError(t, application.store.Create(t.Context(), item))
+	server := httptest.NewServer(application.Handler())
+	defer server.Close()
+	client := authenticatedTestClient(t, server.URL)
+	body := strings.NewReader(`{"kind":"set","timed_content":{"entries":[` +
+		`{"text":"Opening","time_ms":0},{"text":"Closing","time_ms":180000}]}}`)
+	request := newClientRequest(t, http.MethodPatch, server.URL+"/api/admin/media/"+item.ID+"/timed-content", body)
+	request.Header.Set("Content-Type", "application/json")
+	response, err := client.Do(request)
+	require.NoError(t, err)
+	contents, readErr := io.ReadAll(response.Body)
+	require.NoError(t, response.Body.Close())
+	require.NoError(t, readErr)
+	require.Equal(t, http.StatusOK, response.StatusCode, string(contents))
+
+	stored, err := application.store.Get(t.Context(), item.ID)
+	require.NoError(t, err)
+	assert.Equal(t, item.Title, stored.Title)
+	assert.Equal(t, item.Subtitle, stored.Subtitle)
+	require.Len(t, stored.TimedContent.Entries, 2)
+	assert.Equal(t, "Closing", stored.TimedContent.Entries[1].Text)
+
+	for _, invalid := range []string{`{"kind":"set"}`, `{"kind":"set","timed_content":null}`} {
+		request = newClientRequest(
+			t, http.MethodPatch, server.URL+"/api/admin/media/"+item.ID+"/timed-content", strings.NewReader(invalid),
+		)
+		request.Header.Set("Content-Type", "application/json")
+		response, err = client.Do(request)
+		require.NoError(t, err)
+		require.NoError(t, response.Body.Close())
+		require.Equal(t, http.StatusBadRequest, response.StatusCode)
+	}
+	stored, err = application.store.Get(t.Context(), item.ID)
+	require.NoError(t, err)
+	require.Len(t, stored.TimedContent.Entries, 2)
+}
+
 func TestUploadRejectsForeignOrigin(t *testing.T) {
 	application := testApp(t)
 	recorder := httptest.NewRecorder()
-	application.auth.setSession(recorder, AdminIdentity{
+	require.NoError(t, application.auth.setSession(recorder, AdminIdentity{
 		Subject: "admin", Name: "Admin", Expires: application.auth.now().Add(time.Minute).Unix(),
-	})
+	}))
 	body, contentType := singleUploadBody(t, "audio", "set.ogg", []byte("OggS fake test audio"))
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/admin/uploads/audio", body)
 	request.Header.Set("Content-Type", contentType)
