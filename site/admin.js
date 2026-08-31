@@ -1907,6 +1907,39 @@ document.querySelectorAll("[data-timeline-action]").forEach(bindHoldAction);
 timelineFollow.addEventListener("contextmenu", (event) => event.preventDefault());
 timelineFollow.addEventListener("click", () => setPreviewSticky(!state.previewSticky));
 
+const TIMELINE_SHORTCUTS = {
+  "+": "zoom-in",
+  "=": "zoom-in",
+  "-": "zoom-out",
+  "[": "left",
+  "]": "right",
+};
+
+document.addEventListener("keydown", (event) => {
+  if (deleteDialog.open || !event.ctrlKey || event.altKey || event.metaKey || event.defaultPrevented) return;
+  const shortcutKey = event.key.toLowerCase();
+  const timelineAction = TIMELINE_SHORTCUTS[event.key]
+    || (event.code === "NumpadAdd" ? "zoom-in" : event.code === "NumpadSubtract" ? "zoom-out" : "");
+  const lyricsFocused = document.activeElement === lyricsEditor;
+  let action = timelineAction && previewDurationSeconds() ? timelineAction : "";
+  if (shortcutKey === "q" && !previewPlay.disabled) action = "play";
+  else if (shortcutKey === "l" && !liveLyricsCursorToggle.hidden) action = "live-cursor";
+  else if (shortcutKey === "m") action = "shift-markers";
+  else if (shortcutKey === "f" && previewDurationSeconds()) action = "follow-playhead";
+  else if (shortcutKey === "h" && form.elements.kind.value === "song" && lyricsFocused) action = "toggle-section";
+  else if (shortcutKey === "j" && form.elements.kind.value === "song" && lyricsFocused && previewDurationSeconds()) action = "jump-to-cursor";
+  if (!action) return;
+  event.preventDefault();
+  if (event.repeat && !timelineAction) return;
+  if (timelineAction) runTimelineAction(timelineAction);
+  else if (action === "play") previewPlay.click();
+  else if (action === "live-cursor") liveLyricsCursor.click();
+  else if (action === "shift-markers") shiftFollowing.click();
+  else if (action === "follow-playhead") timelineFollow.click();
+  else if (action === "toggle-section") toggleCollapsedLyricsSection();
+  else if (action === "jump-to-cursor") jumpToLyricsCursor();
+});
+
 async function pollAudio(uploadID, sequence) {
   for (let attempt = 0; attempt < 3600; attempt += 1) {
     if (sequence !== state.audioSequence) return;
@@ -2105,6 +2138,7 @@ coverDrop.addEventListener("wheel", (event) => {
 }, { passive: false });
 coverDrop.addEventListener("keydown", (event) => {
   if (coverDrop.disabled || !coverDrop.classList.contains("has-preview")) return;
+  if (event.ctrlKey || event.altKey || event.metaKey) return;
   const step = event.shiftKey ? 10 : 2;
   if (event.key === "ArrowLeft") state.coverTransform.x -= step;
   else if (event.key === "ArrowRight") state.coverTransform.x += step;
