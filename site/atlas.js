@@ -600,10 +600,10 @@ function collapsedRanges(markers) {
   return ranges;
 }
 
-function currentIndexAt(items, timeMS) {
+function currentIndexAt(items, timeMS, timeKey = "time_ms") {
   let current = -1;
   for (let index = 0; index < items.length; index += 1) {
-    if (items[index].time_ms > timeMS) break;
+    if (items[index][timeKey] > timeMS) break;
     current = index;
   }
   return current;
@@ -635,6 +635,7 @@ function lyricLines(item = state.current, durationSeconds = item?.duration_secon
     }
     return low;
   };
+  const pauseCountAt = (offset) => pauseCountBefore(offset + 1) - pauseCountBefore(offset);
   const usedAtOffset = new Map();
   const timingMarkers = markers.map((marker) => {
     const index = usedAtOffset.get(marker.offset) || 0;
@@ -645,8 +646,7 @@ function lyricLines(item = state.current, durationSeconds = item?.duration_secon
       position: marker.offset + pauseCountBefore(marker.offset) + (pausesAtOffset && index > 0 ? pausesAtOffset : 0),
     };
   });
-  const interpolatedTime = (offset) => {
-    const position = offset + pauseCountBefore(offset);
+  const interpolatedTimeAtPosition = (position) => {
     const exact = timingMarkers.find((marker) => marker.position === position);
     if (exact) return exact.time_ms;
     const finalPosition = runes.length + pauses.length;
@@ -655,18 +655,43 @@ function lyricLines(item = state.current, durationSeconds = item?.duration_secon
     if (after.position === before.position) return before.time_ms;
     return Math.round(before.time_ms + (after.time_ms - before.time_ms) * (position - before.position) / (after.position - before.position));
   };
+  const interpolatedTime = (offset, afterPause = false) => interpolatedTimeAtPosition(
+    offset + pauseCountBefore(offset) + (afterPause ? pauseCountAt(offset) : 0),
+  );
   lines.forEach((line) => {
     line.markers = markers.filter((marker) => marker.offset >= line.start && marker.offset <= line.end);
     line.pauses = (content.pauses || []).filter((offset) => offset >= line.start && offset <= line.end).map((offset) => offset - line.start);
-    const timingMarkers = line.markers.filter((marker) => marker.offset < runes.length);
-    line.time_ms = interpolatedTime(line.start);
-    line.karaoke = new Set(timingMarkers.map((marker) => marker.offset)).size > 1;
+    const lineMarkerOffsets = new Set(line.markers.filter((marker) => marker.offset < runes.length).map((marker) => marker.offset));
+    const pauseOnlyOffsets = new Set([line.start, line.end]);
+    line.pauses.forEach((offset) => pauseOnlyOffsets.add(line.start + offset));
+    // Markers bracketing whitespace describe a natural pause, not karaoke syllables.
+    for (let offset = line.start; offset < line.end; offset += 1) {
+      if (!/\s/u.test(runes[offset]) || !lineMarkerOffsets.has(offset) || !lineMarkerOffsets.has(offset + 1)) continue;
+      pauseOnlyOffsets.add(offset);
+      pauseOnlyOffsets.add(offset + 1);
+    }
+    line.time_ms = interpolatedTime(line.start, true);
+    line.finish_time_ms = Math.max(line.time_ms, interpolatedTime(line.end));
+    line.karaoke = [...lineMarkerOffsets].some((offset) => offset > line.start && offset < line.end && !pauseOnlyOffsets.has(offset));
     const collapsedRange = collapsed.find((range) => range.start <= line.start && range.end >= line.end);
     line.collapsed = Boolean(collapsedRange);
-    if (collapsedRange) line.time_ms = collapsedRange.time_ms;
+    if (collapsedRange) {
+      line.time_ms = collapsedRange.time_ms;
+      line.finish_time_ms = collapsedRange.time_ms;
+    }
   });
   lines.forEach((line, index) => { line.end_time_ms = Math.min(lines[index + 1]?.time_ms ?? durationMS, durationMS); });
-  return lines.filter((line) => line.time_ms < durationMS);
+  const eligible = lines.filter((line) => line.time_ms < durationMS);
+  let previousVisible = null;
+  eligible.forEach((line) => {
+    line.display_time_ms = line.time_ms;
+    if (line.collapsed) return;
+    line.display_time_ms = previousVisible
+      ? Math.min(line.time_ms, Math.max(previousVisible.display_time_ms, previousVisible.finish_time_ms))
+      : 0;
+    previousVisible = line;
+  });
+  return eligible;
 }
 
 function karaokeState(line, timeMS) {
@@ -745,6 +770,7 @@ function karaokeState(line, timeMS) {
 }
 
 function setPrimaryLyric(line, timeMS, karaoke) {
+  textCurrent.classList.toggle("is-unsung", Boolean(line) && timeMS < line.time_ms);
   if (!karaoke) {
     const key = `plain:${state.current?.id || ""}:${line?.start ?? -1}:${line?.end ?? -1}`;
     if (textCurrent.dataset.lyricKey !== key) {
@@ -764,8 +790,8 @@ function setPrimaryLyric(line, timeMS, karaoke) {
     const after = document.createElement("span");
     before.className = "lyric-sung";
     wrapper.className = "lyric-progress";
-    base.className = "lyric-next";
-    fill.className = "lyric-sung";
+    base.className = "lyric-sung";
+    fill.className = "lyric-next";
     fill.setAttribute("aria-hidden", "true");
     after.className = "lyric-next";
     wrapper.append(base, fill);
@@ -797,6 +823,7 @@ function renderPlayerText() {
   const timeMS = audio.currentTime * 1000;
   if (item.kind === "set") {
     delete textCurrent.dataset.lyricKey;
+    textCurrent.classList.remove("is-unsung");
     const entries = eligibleEntries(item);
     if (!entries.length) {
       textPrevious.textContent = "";
@@ -821,6 +848,7 @@ function renderPlayerText() {
   const lines = state.lyricLines.filter((line) => !line.collapsed);
   if (!lines.length) {
     delete textCurrent.dataset.lyricKey;
+    textCurrent.classList.remove("is-unsung");
     textPrevious.textContent = "";
     textCurrent.textContent = "No lyrics available";
     textNext.textContent = "";
@@ -829,7 +857,7 @@ function renderPlayerText() {
     animatePlayerRows(`${item.id}:empty`);
     return;
   }
-  const index = currentIndexAt(lines, timeMS);
+  const index = currentIndexAt(lines, timeMS, "display_time_ms");
   textPrevious.textContent = lines[index - 1]?.text || "";
   setPrimaryLyric(lines[index], timeMS, lines[index]?.karaoke);
   textNext.textContent = lines[index + 1]?.text || "";

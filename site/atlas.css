@@ -99,13 +99,16 @@
 .player-text > span, .player-text > strong { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .player-text > span { color: rgb(220 193 137 / .48); font: .56rem var(--body); }
 .player-text > strong { color: var(--cream); font: 500 .72rem/1.2 var(--body); white-space: pre; }
+.player-text > strong.is-unsung { color: var(--gold-dim); }
 .player-text strong .lyric-sung { color: var(--cream); }
-.player-text strong .lyric-next { color: rgb(239 227 206 / .38); }
+.player-text strong .lyric-next { color: var(--gold-dim); }
 .player-text strong :is(.lyric-sung, .lyric-next) { display: inline; }
 .player-text strong .lyric-progress { position: relative; display: inline-block; vertical-align: baseline; direction: ltr; font: inherit; line-height: inherit; unicode-bidi: plaintext; }
-.player-text strong .lyric-progress .lyric-sung { position: absolute; inset: 0; clip-path: inset(0 calc(100% - var(--lyric-fill)) 0 0); pointer-events: none; }
+.player-text strong .lyric-progress .lyric-sung { display: inline-block; clip-path: inset(0 calc(100% - var(--lyric-fill)) 0 0); }
+.player-text strong .lyric-progress .lyric-next { position: absolute; inset: 0; clip-path: inset(0 0 0 var(--lyric-fill)); pointer-events: none; }
 .player-text strong .lyric-progress.is-rtl { direction: rtl; }
 .player-text strong .lyric-progress.is-rtl .lyric-sung { clip-path: inset(0 0 0 calc(100% - var(--lyric-fill))); }
+.player-text strong .lyric-progress.is-rtl .lyric-next { clip-path: inset(0 var(--lyric-fill) 0 0); }
 .player-text .is-entering { animation: player-text-enter 180ms ease-out; }
 .player-text:disabled { color: rgb(220 193 137 / .38); cursor: default; }
 .player-text:disabled strong { color: rgb(220 193 137 / .38); font-weight: 400; }
