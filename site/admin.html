@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600&amp;family=Manrope:wght@300;400;500;600&amp;display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css?v=20">
-  <link rel="stylesheet" href="admin.css?v=30">
+  <link rel="stylesheet" href="admin.css?v=32">
 </head>
 <body class="admin-body">
   <a class="skip-link" href="#media-form">Skip to media form</a>
@@ -92,7 +92,7 @@
           </div>
 
           <section class="timed-editor" data-timed-editor aria-label="Timed text editor">
-            <div class="timed-editor-heading"><strong data-timed-heading>Set songs</strong><label class="shift-toggle"><input data-shift-following type="checkbox" checked> Shift following markers</label></div>
+            <div class="timed-editor-heading"><strong data-timed-heading>Set songs</strong><div class="timed-editor-toggles"><label class="shift-toggle"><input data-shift-following type="checkbox" checked> Shift following markers</label><label class="shift-toggle" data-live-lyrics-toggle hidden><input data-live-lyrics-cursor type="checkbox"> Live cursor</label></div></div>
             <div data-set-timed-fields>
               <label class="field field-wide"><span>Songs</span><textarea data-song-list-input rows="3" placeholder="One song per line"></textarea></label>
               <div class="timed-actions"><button class="quiet-button" data-add-song type="button">Add song</button><button class="quiet-button" data-add-song-list type="button">Add list</button><button class="quiet-button" data-clear-songs type="button" disabled>Clear all</button></div>
@@ -154,6 +154,6 @@
   </template>
 
   <script src="shared-ui.js?v=13"></script>
-  <script src="admin.js?v=50"></script>
+  <script src="admin.js?v=51"></script>
 </body>
 </html>
