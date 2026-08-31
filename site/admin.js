@@ -81,6 +81,7 @@ const timelineFollow = document.querySelector("[data-timeline-follow]");
 const PAUSE_SYMBOL = "𝄺";
 const LYRICS_CLIPBOARD_TYPE = "application/x-touchzouk-lyrics";
 const LYRIC_MARKER_MOVE_DIRECTIONS = { ArrowLeft: -1, ArrowRight: 1, Comma: -1, Period: 1 };
+const LYRIC_NAVIGATION_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"]);
 let mutationQueue = Promise.resolve();
 let catalogLoadSequence = 0;
 let editorSavePending = false;
@@ -88,6 +89,8 @@ let catalogOrderPending = false;
 let previewWaveformFrame = 0;
 let previewPlaybackFrame = 0;
 let lyricsComposing = false;
+const liveLyricsNavigationKeys = new Set();
+let liveLyricsNavigationFrame = 0;
 const activeUploads = { audio: null, cover: null };
 
 function enqueueMutation(url, options) {
@@ -1066,7 +1069,7 @@ function paintPreviewProgress() {
   const duration = formatDuration(previewAudio.duration);
   previewDuration.textContent = duration;
   previewSeek.setAttribute("aria-valuetext", `${previewCurrent.textContent} of ${duration}`);
-  if (form.elements.kind.value === "song") {
+  if (form.elements.kind.value === "song" && !liveLyricsNavigationKeys.size) {
     const cursor = lyricsCursorAtTime(previewAudio.currentTime * 1000);
     if (cursor.offset !== state.lyricsPlaybackOffset || cursor.pauseCount !== state.lyricsPlaybackPauseCount) {
       state.lyricsPlaybackOffset = cursor.offset;
@@ -1541,9 +1544,9 @@ function jumpToLyricsCursor() {
   seekPreviewToLyricsCursor(true);
 }
 
-function seekPreviewToLyricsCursor(center = false) {
+function seekPreviewToLyricsCursor(center = false, cursor = currentLyricsCursor()) {
   if (!previewDurationSeconds()) return;
-  const { offset, pauseCount } = currentLyricsCursor();
+  const { offset, pauseCount } = cursor;
   const timeMS = timeAtLyricsOffset(offset, pauseCount);
   previewAudio.currentTime = Math.max(0, Math.min(previewDurationSeconds(), timeMS / 1000));
   if (center) centerPreviewView(previewAudio.currentTime / previewDurationSeconds());
@@ -1720,10 +1723,34 @@ document.querySelector("[data-add-lyric-pause]").addEventListener("click", addLy
 document.querySelector("[data-remove-lyric-marker]").addEventListener("click", removeLyricMarkerAtCursor);
 document.querySelector("[data-toggle-lyric-section]").addEventListener("click", toggleCollapsedLyricsSection);
 document.querySelector("[data-jump-lyric-cursor]").addEventListener("click", jumpToLyricsCursor);
+function stopLiveLyricsNavigation(commitPending = false) {
+  const pending = liveLyricsNavigationFrame;
+  if (liveLyricsNavigationFrame) cancelAnimationFrame(liveLyricsNavigationFrame);
+  liveLyricsNavigationFrame = 0;
+  if (commitPending && pending && liveLyricsNavigationKeys.size) syncLiveLyricsNavigation();
+  liveLyricsNavigationKeys.clear();
+}
+
+function syncLiveLyricsNavigation() {
+  const selection = window.getSelection();
+  const selectionInside = selection?.rangeCount && lyricsEditor.contains(selection.anchorNode) && lyricsEditor.contains(selection.focusNode);
+  if (!liveLyricsCursor.checked || document.activeElement !== lyricsEditor && !selectionInside) return;
+  state.selectedLyricMarker = null;
+  currentLyricsSelection();
+  updateLyricSectionAction();
+  const cursor = currentLyricsCursor();
+  state.lyricsPlaybackOffset = cursor.offset;
+  state.lyricsPlaybackPauseCount = cursor.pauseCount;
+  seekPreviewToLyricsCursor(false, cursor);
+}
+
 liveLyricsCursor.addEventListener("change", () => {
   state.selectedLyricMarker = null;
   if (liveLyricsCursor.checked) focusLyricsAtPlayback();
-  else renderLyricsEditor(false);
+  else {
+    stopLiveLyricsNavigation();
+    renderLyricsEditor(false);
+  }
 });
 lyricsEditor.addEventListener("keydown", (event) => {
   if (event.ctrlKey && event.code === "Space") {
@@ -1741,6 +1768,14 @@ lyricsEditor.addEventListener("keydown", (event) => {
     moveLyricMarkerAtCursor(LYRIC_MARKER_MOVE_DIRECTIONS[event.code], event.shiftKey);
     return;
   }
+  if (liveLyricsCursor.checked && !event.isComposing && !lyricsComposing && LYRIC_NAVIGATION_KEYS.has(event.key)) {
+    liveLyricsNavigationKeys.add(event.key);
+    if (liveLyricsNavigationFrame) cancelAnimationFrame(liveLyricsNavigationFrame);
+    liveLyricsNavigationFrame = requestAnimationFrame(() => {
+      liveLyricsNavigationFrame = 0;
+      if (liveLyricsNavigationKeys.size) syncLiveLyricsNavigation();
+    });
+  }
   if (["Backspace", "Delete"].includes(event.key) && state.selectedLyricMarker) {
     event.preventDefault();
     removeLyricMarkerAtCursor();
@@ -1755,12 +1790,19 @@ lyricsEditor.addEventListener("click", (event) => {
 lyricsEditor.addEventListener("keyup", (event) => {
   currentLyricsSelection();
   updateLyricSectionAction();
-  const navigated = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"].includes(event.key);
+  const navigated = LYRIC_NAVIGATION_KEYS.has(event.key);
   if (navigated) state.selectedLyricMarker = null;
   if (liveLyricsCursor.checked && navigated) {
-    seekPreviewToLyricsCursor();
+    if (liveLyricsNavigationFrame) {
+      cancelAnimationFrame(liveLyricsNavigationFrame);
+      liveLyricsNavigationFrame = 0;
+      syncLiveLyricsNavigation();
+    }
+    liveLyricsNavigationKeys.delete(event.key);
   }
 });
+lyricsEditor.addEventListener("blur", () => stopLiveLyricsNavigation(true));
+window.addEventListener("blur", () => stopLiveLyricsNavigation(true));
 
 function minimumPreviewSpan() {
   const durationMS = Math.round(previewDurationSeconds() * 1000);
