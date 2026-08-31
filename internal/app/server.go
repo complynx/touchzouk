@@ -158,6 +158,7 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("GET /api/media", a.listMedia)
 	mux.HandleFunc("GET /api/featured", a.featuredMedia)
 	mux.HandleFunc("GET /media/{id}/{asset}", a.serveMedia)
+	mux.HandleFunc("POST /api/admin/session/refresh", a.refreshAdminSession)
 	mux.Handle("GET /api/admin/me", a.auth.RequireAdmin(http.HandlerFunc(a.adminMe)))
 	mux.Handle("GET /api/admin/settings", a.auth.RequireAdmin(http.HandlerFunc(a.adminSettings)))
 	mux.Handle("PUT /api/admin/settings/set-order", a.auth.RequireAdmin(http.HandlerFunc(a.updateSetOrder)))
@@ -171,6 +172,7 @@ func (a *App) routes() http.Handler {
 	mux.Handle("POST /api/admin/media/{id}/pin", a.auth.RequireAdmin(http.HandlerFunc(a.pinMedia)))
 	mux.Handle("POST /api/admin/media/{id}/waveform", a.auth.RequireAdmin(http.HandlerFunc(a.regenerateWaveform)))
 	mux.Handle("PATCH /api/admin/media/{id}", a.auth.RequireAdmin(http.HandlerFunc(a.updateMedia)))
+	mux.Handle("PATCH /api/admin/media/{id}/timed-content", a.auth.RequireAdmin(http.HandlerFunc(a.updateTimedContent)))
 	mux.Handle("DELETE /api/admin/media/{id}", a.auth.RequireAdmin(http.HandlerFunc(a.deleteMedia)))
 	mux.Handle("/", http.FileServer(http.Dir(a.cfg.SiteDir)))
 	return securityHeaders(requestLogger(mux))
@@ -186,6 +188,33 @@ func (a *App) serveListen(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) adminMe(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, identityFromContext(r.Context()))
+}
+
+func (a *App) refreshAdminSession(w http.ResponseWriter, r *http.Request) {
+	if !a.validOrigin(r) {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "invalid request origin"})
+		return
+	}
+	identity, err := a.auth.RefreshSession(w, r)
+	if errors.Is(err, errRefreshLoginRequired) {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "administrator login required"})
+		return
+	}
+	if errors.Is(err, errRefreshUnavailable) {
+		slog.Warn("refresh administrator session", "error", err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "could not refresh administrator login"})
+		return
+	}
+	if err != nil {
+		slog.Error("save refreshed administrator session", "error", err)
+		writeJSON(
+			w,
+			http.StatusInternalServerError,
+			map[string]string{"error": "could not refresh administrator login"},
+		)
+		return
+	}
+	writeJSON(w, http.StatusOK, identity)
 }
 
 func (a *App) logout(w http.ResponseWriter, r *http.Request) {
@@ -311,6 +340,18 @@ func (a *App) updateMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.editMedia(w, r, input)
+}
+
+func (a *App) updateTimedContent(w http.ResponseWriter, r *http.Request) {
+	if !a.validOrigin(r) {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "invalid request origin"})
+		return
+	}
+	input, ok := decodeTimedContentInput(w, r)
+	if !ok {
+		return
+	}
+	a.editTimedContent(w, r, input)
 }
 
 func (a *App) serveMedia(w http.ResponseWriter, r *http.Request) {

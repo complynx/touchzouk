@@ -82,10 +82,19 @@ const PAUSE_SYMBOL = "𝄺";
 const LYRICS_CLIPBOARD_TYPE = "application/x-touchzouk-lyrics";
 const LYRIC_MARKER_MOVE_DIRECTIONS = { ArrowLeft: -1, ArrowRight: 1, Comma: -1, Period: 1 };
 const LYRIC_NAVIGATION_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"]);
+const TIMED_AUTOSAVE_DELAY = 2000;
+const TIMED_AUTOSAVE_RETRY_DELAY = 10000;
+const SESSION_REFRESH_INTERVAL = 5 * 60 * 1000;
 let mutationQueue = Promise.resolve();
 let catalogLoadSequence = 0;
 let editorSavePending = false;
 let catalogOrderPending = false;
+let sessionRefreshPromise = null;
+let timedAutosaveTimer = 0;
+let timedAutosaveRetryTimer = 0;
+let timedAutosaveEnabled = false;
+let timedAutosaveSaved = "";
+let timedAutosaveErrorShown = false;
 let previewWaveformFrame = 0;
 let previewPlaybackFrame = 0;
 let lyricsComposing = false;
@@ -93,10 +102,46 @@ const liveLyricsNavigationKeys = new Set();
 let liveLyricsNavigationFrame = 0;
 const activeUploads = { audio: null, cover: null };
 
+async function requestAdminSessionRefresh() {
+  const request = async () => {
+    const response = await fetch("/api/admin/session/refresh", { method: "POST" });
+    return {
+      ok: response.ok,
+      status: response.status,
+      identity: response.ok ? await response.json() : null,
+    };
+  };
+  if (navigator.locks?.request) return navigator.locks.request("touchzouk-admin-session-refresh", request);
+  return request();
+}
+
+async function refreshAdminSession(redirectOnFailure = false) {
+  if (!sessionRefreshPromise) {
+    sessionRefreshPromise = requestAdminSessionRefresh()
+      .catch((error) => {
+        console.warn("Could not refresh administrator session", error);
+        return { ok: false, status: 0, identity: null };
+      })
+      .finally(() => { sessionRefreshPromise = null; });
+  }
+  const result = await sessionRefreshPromise;
+  if (result.ok) document.querySelector("[data-admin-name]").textContent = result.identity.name;
+  else if (result.status === 401 && redirectOnFailure) window.location.assign("/auth/login");
+  return result.ok;
+}
+
+async function fetchAdmin(url, options) {
+  let response = await fetch(url, options);
+  if (response.status !== 401) return response;
+  if (!await refreshAdminSession(true)) return response;
+  response = await fetch(url, options);
+  return response;
+}
+
 function enqueueMutation(url, options) {
   catalogLoadSequence += 1;
   const request = mutationQueue.then(async () => {
-    const response = await fetch(url, options);
+    const response = await fetchAdmin(url, options);
     return { response, result: await response.json() };
   });
   mutationQueue = request.then(() => undefined, () => undefined);
@@ -125,6 +170,84 @@ function cloneTimedContent(content = {}) {
     markers: (content.markers || []).map((marker) => ({ offset: Number(marker.offset) || 0, time_ms: Number(marker.time_ms) || 0 })),
     pauses: [...(content.pauses || [])].map((offset) => Number(offset) || 0),
   };
+}
+
+function stopTimedAutosave() {
+  clearTimeout(timedAutosaveTimer);
+  clearTimeout(timedAutosaveRetryTimer);
+  timedAutosaveTimer = 0;
+  timedAutosaveRetryTimer = 0;
+  timedAutosaveEnabled = false;
+  timedAutosaveSaved = "";
+  timedAutosaveErrorShown = false;
+}
+
+function startTimedAutosave() {
+  clearTimeout(timedAutosaveTimer);
+  clearTimeout(timedAutosaveRetryTimer);
+  timedAutosaveTimer = 0;
+  timedAutosaveRetryTimer = 0;
+  timedAutosaveSaved = JSON.stringify(cloneTimedContent(state.timedContent));
+  timedAutosaveEnabled = Boolean(state.editing);
+}
+
+function scheduleTimedAutosave() {
+  if (!timedAutosaveEnabled || !state.editing || timedAutosaveTimer) return;
+  if (form.elements.kind.value !== state.editing.kind) return;
+  const snapshot = JSON.stringify(cloneTimedContent(state.timedContent));
+  if (snapshot === timedAutosaveSaved) {
+    clearTimeout(timedAutosaveRetryTimer);
+    timedAutosaveRetryTimer = 0;
+    if (timedAutosaveErrorShown) {
+      const label = state.editing.kind === "set" ? "Songs" : "Lyrics";
+      editorContext.textContent = `${label} saved automatically; other changes save when you submit.`;
+      setMessage("");
+      timedAutosaveErrorShown = false;
+    }
+    return;
+  }
+  if (form.elements.kind.value === "set" && state.timedContent.entries.some((entry) => !entry.text.trim())) return;
+  clearTimeout(timedAutosaveRetryTimer);
+  timedAutosaveRetryTimer = 0;
+  timedAutosaveTimer = setTimeout(() => { void autosaveTimedContent(); }, TIMED_AUTOSAVE_DELAY);
+}
+
+async function autosaveTimedContent() {
+  clearTimeout(timedAutosaveTimer);
+  timedAutosaveTimer = 0;
+  const item = state.editing;
+  const generation = state.editorGeneration;
+  if (!timedAutosaveEnabled || !item) return;
+  if (form.elements.kind.value !== item.kind) return;
+  const timedContent = cloneTimedContent(state.timedContent);
+  const snapshot = JSON.stringify(timedContent);
+  if (snapshot === timedAutosaveSaved) return;
+  if (item.kind === "set" && timedContent.entries.some((entry) => !entry.text.trim())) return;
+  editorContext.textContent = `Saving ${item.kind === "set" ? "songs" : "lyrics"} automatically…`;
+  try {
+    const { response, result } = await enqueueMutation(`/api/admin/media/${item.id}/timed-content`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: item.kind, timed_content: timedContent }),
+    });
+    if (!response.ok) throw new Error(result.error || "Could not autosave progress");
+    if (generation !== state.editorGeneration || state.editing?.id !== item.id) return;
+    timedAutosaveSaved = snapshot;
+    item.timed_content = cloneTimedContent(result.timed_content);
+    editorContext.textContent = `${item.kind === "set" ? "Songs" : "Lyrics"} saved automatically; other changes save when you submit.`;
+    if (timedAutosaveErrorShown) setMessage("");
+    timedAutosaveErrorShown = false;
+    scheduleTimedAutosave();
+  } catch (error) {
+    if (generation !== state.editorGeneration || state.editing?.id !== item.id) return;
+    editorContext.textContent = `${item.kind === "set" ? "Songs" : "Lyrics"} could not be saved automatically; retrying soon.`;
+    setMessage(error.message, true);
+    timedAutosaveErrorShown = true;
+    timedAutosaveRetryTimer = setTimeout(() => {
+      timedAutosaveRetryTimer = 0;
+      scheduleTimedAutosave();
+    }, TIMED_AUTOSAVE_RETRY_DELAY);
+  }
 }
 
 function previewDurationSeconds() {
@@ -513,7 +636,10 @@ function renderTimedList() {
     input.value = entry.text;
     input.maxLength = 180;
     input.setAttribute("aria-label", `Song ${index + 1} name`);
-    input.addEventListener("input", () => { entry.text = input.value; });
+    input.addEventListener("input", () => {
+      entry.text = input.value;
+      scheduleTimedAutosave();
+    });
     remove.type = "button";
     remove.className = "quiet-button";
     remove.textContent = "−";
@@ -603,6 +729,7 @@ function moveTimelineMarker(markers, index, desired, original) {
   updateTimelineCuePositions();
   if (form.elements.kind.value === "set") renderTimedList();
   else renderLyricsEditor();
+  scheduleTimedAutosave();
 }
 
 function bindTimelineCue(button, marker, index, markers) {
@@ -713,6 +840,7 @@ function renderTimedEditor() {
   renderTimelineCues();
   if (form.elements.kind.value === "set") renderTimedList();
   else renderLyricsEditor();
+  scheduleTimedAutosave();
 }
 
 function addSongs(lines) {
@@ -950,7 +1078,7 @@ async function drawUploadWaveform(url, sequence = state.audioSequence) {
   const controller = new AbortController();
   state.waveformPreviewController = controller;
   try {
-    const response = await fetch(url, { cache: "no-cache", signal: controller.signal });
+    const response = await fetchAdmin(url, { cache: "no-cache", signal: controller.signal });
     if (!response.ok || sequence !== state.audioSequence) return;
     const points = (await response.json()).points || [];
     if (controller.signal.aborted || sequence !== state.audioSequence) return;
@@ -1472,6 +1600,7 @@ function addLyricPauseAtCursor() {
   if (added) pauseCount = lyricPauseCountBeforeOffset(offset) + 1;
   state.selectedLyricMarker = null;
   renderLyricsEditor();
+  scheduleTimedAutosave();
   lyricsEditor.focus({ preventScroll: true });
   restoreLyricsSelection(offset, offset, pauseCount);
 }
@@ -1985,7 +2114,7 @@ document.addEventListener("keydown", (event) => {
 async function pollAudio(uploadID, sequence) {
   for (let attempt = 0; attempt < 3600; attempt += 1) {
     if (sequence !== state.audioSequence) return;
-    const response = await fetch(`/api/admin/uploads/${uploadID}`);
+    const response = await fetchAdmin(`/api/admin/uploads/${uploadID}`);
     const upload = await response.json();
     if (sequence !== state.audioSequence) return;
     if (!response.ok) throw new Error(upload.error || "Could not read audio status");
@@ -2250,6 +2379,7 @@ function cancelPendingEditorAssets() {
 
 function resetEditor() {
   state.editorGeneration += 1;
+  stopTimedAutosave();
   setEditorBusy(false);
   cancelPendingEditorAssets();
   state.editing = null;
@@ -2291,6 +2421,7 @@ function editItem(item) {
     return;
   }
   state.editorGeneration += 1;
+  stopTimedAutosave();
   setEditorBusy(false);
   cancelPendingEditorAssets();
   state.editing = item;
@@ -2334,9 +2465,10 @@ function editItem(item) {
   setCoverTransform(item.cover_position, item.cover_zoom);
   setAssetStatus(coverStatus, "Cover crop is saved with this track.");
   editorTitle.textContent = `Edit ${item.kind}`;
-  editorContext.textContent = "Metadata saves immediately when you submit; audio is unchanged.";
+  editorContext.textContent = `${item.kind === "set" ? "Songs" : "Lyrics"} save automatically; other changes save when you submit.`;
   cancelEdit.hidden = false;
   submit.textContent = "Save changes";
+  startTimedAutosave();
   form.scrollIntoView({ behavior: "smooth", block: "start" });
   form.elements.title.focus();
 }
@@ -2388,6 +2520,8 @@ form.addEventListener("submit", async (event) => {
   if (!state.editing && !state.audioUpload) { setMessage("Wait for the audio upload and analysis to finish.", true); return; }
   if (!state.editing && !state.coverUpload) { setMessage("Upload a cover before publishing.", true); return; }
   if (state.editing && state.coverReplacementStarted && !state.coverUpload) { setMessage("Wait for the replacement cover to finish uploading, or choose it again if the upload failed.", true); return; }
+  clearTimeout(timedAutosaveTimer);
+  timedAutosaveTimer = 0;
   const editorGeneration = state.editorGeneration;
   const payload = mediaPayload();
   editorSavePending = true;
@@ -2414,6 +2548,7 @@ form.addEventListener("submit", async (event) => {
   } catch (error) {
     if (editorGeneration === state.editorGeneration) setMessage(error.message, true);
     await loadAll({ afterMutations: true });
+    scheduleTimedAutosave();
   } finally {
     editorSavePending = false;
     if (editorGeneration === state.editorGeneration) setEditorBusy(false);
@@ -2421,12 +2556,12 @@ form.addEventListener("submit", async (event) => {
 });
 
 async function loadIdentity() {
-  const response = await fetch("/api/admin/me");
+  const response = await fetchAdmin("/api/admin/me");
   if (response.ok) document.querySelector("[data-admin-name]").textContent = (await response.json()).name;
 }
 
 async function fetchSettings() {
-  const response = await fetch("/api/admin/settings");
+  const response = await fetchAdmin("/api/admin/settings");
   if (!response.ok) throw new Error("Could not load settings");
   return response.json();
 }
@@ -2435,6 +2570,11 @@ async function fetchCatalog(kind) {
   const response = await fetch(`/api/media?kind=${kind}`);
   if (!response.ok) throw new Error(`Could not load ${kind}s`);
   return (await response.json()).items;
+}
+
+async function initializeAdmin() {
+  await refreshAdminSession();
+  await Promise.all([loadIdentity(), loadAll()]);
 }
 
 function renderCatalogContext(element, item) {
@@ -2708,5 +2848,9 @@ async function loadAll({ afterMutations = false } = {}) {
 }
 
 setKind("set");
-loadIdentity();
-loadAll();
+setInterval(() => { void refreshAdminSession(); }, SESSION_REFRESH_INTERVAL);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") void refreshAdminSession();
+  else if (timedAutosaveEnabled) void autosaveTimedContent();
+});
+void initializeAdmin();
