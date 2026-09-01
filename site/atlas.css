@@ -187,7 +187,7 @@
   .player-wave-row { align-self: end; grid-template-columns: 2.5rem minmax(0, 1fr) 2.5rem; padding-top: 3.2rem; }
   .wave-canvas { height: 2.25rem; }
   .player-text { min-height: 3.7rem; padding: .2rem .5rem; }
-  .player-text span { color: rgb(220 193 137 / .58); font-size: .68rem; }
+  .player-text > span { color: rgb(220 193 137 / .58); font-size: .68rem; }
   .player-text strong { font-size: .82rem; }
   .idle-volume { width: 5rem; margin-left: .2rem; }
 }
