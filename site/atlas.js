@@ -96,44 +96,228 @@ function startAtlasSky() {
     const ratio = Math.max(0, Math.min(1, ((point.x - a.x) * (b.x - a.x) + (point.y - a.y) * (b.y - a.y)) / lengthSquared));
     return Math.hypot(point.x - (a.x + ratio * (b.x - a.x)), point.y - (a.y + ratio * (b.y - a.y)));
   };
-  const constellationChain = (ordered) => ordered.slice(1).map((star, index) => ({
-    a: ordered[index],
-    b: star,
-    distance: Math.hypot(ordered[index].x - star.x, ordered[index].y - star.y),
-  }));
-  const constellationOrders = (cluster) => {
-    const permutations = (points) => points.length < 2 ? [points] : points.flatMap((point, index) => (
-      permutations(points.filter((_, candidateIndex) => candidateIndex !== index))
-        .map((rest) => [point, ...rest])
-    ));
-    const minimumAngle = (ordered) => Math.min(...ordered.slice(1, -1).map((star, index) => {
-      const previous = ordered[index];
-      const next = ordered[index + 2];
-      const incoming = { x: previous.x - star.x, y: previous.y - star.y };
-      const outgoing = { x: next.x - star.x, y: next.y - star.y };
-      const cosine = (incoming.x * outgoing.x + incoming.y * outgoing.y)
-        / (Math.hypot(incoming.x, incoming.y) * Math.hypot(outgoing.x, outgoing.y));
-      return Math.acos(Math.max(-1, Math.min(1, cosine)));
-    }));
-    const minimumPreferredAngle = 20 * Math.PI / 180;
-    return permutations(cluster)
-      .map((ordered) => ({
-        ordered,
-        minimumAngle: minimumAngle(ordered),
-        distance: constellationChain(ordered).reduce((total, edge) => total + edge.distance, 0),
-      }))
-      .sort((left, right) => Number(left.minimumAngle < minimumPreferredAngle) - Number(right.minimumAngle < minimumPreferredAngle)
-        || left.distance - right.distance
-        || right.minimumAngle - left.minimumAngle)
-      .map(({ ordered }) => ordered);
+  const starDistance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  const evenlySpacedEllipseAngles = (squash, pointCount) => {
+    const sampleCount = pointCount * 8;
+    const cumulative = [0];
+    let previous = { x: 1, y: 0 };
+    for (let sample = 1; sample <= sampleCount; sample += 1) {
+      const angle = sample * Math.PI * 2 / sampleCount;
+      const point = { x: Math.cos(angle), y: Math.sin(angle) * squash };
+      cumulative.push(cumulative[sample - 1] + starDistance(previous, point));
+      previous = point;
+    }
+    const total = cumulative[sampleCount];
+    let sample = 1;
+    const angles = Array.from({ length: pointCount + 1 }, (_, index) => {
+      const target = total * index / pointCount;
+      while (sample < sampleCount && cumulative[sample] < target) sample += 1;
+      const segmentLength = cumulative[sample] - cumulative[sample - 1];
+      const ratio = segmentLength ? (target - cumulative[sample - 1]) / segmentLength : 0;
+      return (sample - 1 + ratio) * Math.PI * 2 / sampleCount;
+    });
+    angles[pointCount / 4] = Math.PI / 2;
+    angles[pointCount / 2] = Math.PI;
+    angles[pointCount * 3 / 4] = Math.PI * 1.5;
+    angles[pointCount] = Math.PI * 2;
+    return angles;
+  };
+  const schwarzschildCriticalImpact = 3 * Math.sqrt(3) / 2;
+  const schwarzschildAngleIntegral = (inverseImpactSquared, inverseRadiusLimit) => {
+    // This substitution removes the square-root singularity at a ray's turning point.
+    const steps = 96;
+    let sum = 0;
+    for (let step = 0; step < steps; step += 1) {
+      const parameter = (step + .5) / steps;
+      const inverseRadius = inverseRadiusLimit * (2 * parameter - parameter ** 2);
+      const derivative = 2 * inverseRadiusLimit * (1 - parameter);
+      const radialSpeedSquared = inverseImpactSquared
+        - inverseRadius ** 2 * (1 - inverseRadius);
+      sum += derivative / Math.sqrt(Math.max(Number.EPSILON, radialSpeedSquared));
+    }
+    return sum / steps;
+  };
+  const schwarzschildTurningInverseRadius = (inverseImpactSquared) => {
+    const criticalEnergy = 4 / 27;
+    return 1 / 3 + 2 / 3 * Math.sin(Math.asin(2 * inverseImpactSquared / criticalEnergy - 1) / 3);
+  };
+  const schwarzschildImpactForSweep = (sourceRadius, sweep) => {
+    const inverseSourceRadius = 1 / sourceRadius;
+    const maximumImpact = sourceRadius / Math.sqrt(1 - inverseSourceRadius);
+    const tangentEnergy = 1 / maximumImpact ** 2;
+    const tangentSweep = schwarzschildAngleIntegral(tangentEnergy, inverseSourceRadius);
+    const outbound = sweep > tangentSweep;
+    let lowerImpact = outbound ? schwarzschildCriticalImpact * (1 + 1e-7) : 0;
+    let upperImpact = maximumImpact;
+    const angleAtImpact = (impact) => {
+      if (!impact) return 0;
+      const inverseImpactSquared = 1 / impact ** 2;
+      const inboundSweep = schwarzschildAngleIntegral(inverseImpactSquared, inverseSourceRadius);
+      if (!outbound) return inboundSweep;
+      const turningInverseRadius = schwarzschildTurningInverseRadius(inverseImpactSquared);
+      return 2 * schwarzschildAngleIntegral(inverseImpactSquared, turningInverseRadius) - inboundSweep;
+    };
+    for (let iteration = 0; iteration < 28; iteration += 1) {
+      const impact = (lowerImpact + upperImpact) / 2;
+      const candidateSweep = angleAtImpact(impact);
+      if (outbound ? candidateSweep > sweep : candidateSweep < sweep) lowerImpact = impact;
+      else upperImpact = impact;
+    }
+    return {
+      impact: (lowerImpact + upperImpact) / 2,
+      foreground: !outbound,
+    };
+  };
+  const traceSchwarzschildRing = (sourceRadius, inclinationCosine, angles, family, order = 0) => {
+    const inclinationSine = Math.sqrt(1 - inclinationCosine ** 2);
+    const points = angles.map((angle) => {
+      const sourceX = Math.cos(angle);
+      const sourceY = Math.sin(angle) * inclinationCosine;
+      const sourceDepth = Math.sin(angle) * inclinationSine;
+      const projectedRadius = Math.hypot(sourceX, sourceY);
+      const sourceSeparation = Math.atan2(projectedRadius, sourceDepth);
+      const sameSide = family === "direct";
+      const sweep = (sameSide ? sourceSeparation : Math.PI * 2 - sourceSeparation)
+        + order * Math.PI * 2;
+      const ray = schwarzschildImpactForSweep(sourceRadius, sweep);
+      const side = sameSide ? 1 : -1;
+      return {
+        x: side * ray.impact * sourceX / projectedRadius,
+        y: side * ray.impact * sourceY / projectedRadius,
+        foreground: ray.foreground,
+      };
+    });
+    points[points.length - 1] = { ...points[0] };
+    return points;
+  };
+  const pointInPath = (point, path) => {
+    let inside = false;
+    for (let index = 0, previous = path.length - 2; index < path.length - 1; previous = index, index += 1) {
+      const a = path[index];
+      const b = path[previous];
+      if ((a.y > point.y) !== (b.y > point.y)
+        && point.x < (b.x - a.x) * (point.y - a.y) / (b.y - a.y) + a.x) inside = !inside;
+    }
+    return inside;
+  };
+  const segmentIntersectionRatio = (a, b, c, d) => {
+    const abX = b.x - a.x;
+    const abY = b.y - a.y;
+    const cdX = d.x - c.x;
+    const cdY = d.y - c.y;
+    const denominator = abX * cdY - abY * cdX;
+    if (Math.abs(denominator) < 1e-9) return null;
+    const acX = c.x - a.x;
+    const acY = c.y - a.y;
+    const sourceRatio = (acX * cdY - acY * cdX) / denominator;
+    const boundaryRatio = (acX * abY - acY * abX) / denominator;
+    return sourceRatio > 1e-7 && sourceRatio < 1 - 1e-7
+      && boundaryRatio >= 0 && boundaryRatio <= 1 ? sourceRatio : null;
+  };
+  const clipPathOutsideAnnulus = (path, outerBoundary, innerBoundary) => {
+    const boundaries = [outerBoundary, innerBoundary];
+    const runs = [];
+    let currentRun = null;
+    for (let index = 0; index < path.length - 1; index += 1) {
+      const source = path[index];
+      const target = path[index + 1];
+      const ratios = [0, 1];
+      boundaries.forEach((boundary) => {
+        for (let boundaryIndex = 0; boundaryIndex < boundary.length - 1; boundaryIndex += 1) {
+          const ratio = segmentIntersectionRatio(
+            source, target, boundary[boundaryIndex], boundary[boundaryIndex + 1],
+          );
+          if (ratio !== null) ratios.push(ratio);
+        }
+      });
+      ratios.sort((a, b) => a - b);
+      const uniqueRatios = ratios.filter((ratio, ratioIndex) => (
+        !ratioIndex || ratio - ratios[ratioIndex - 1] > 1e-6
+      ));
+      for (let ratioIndex = 0; ratioIndex < uniqueRatios.length - 1; ratioIndex += 1) {
+        const startRatio = uniqueRatios[ratioIndex];
+        const endRatio = uniqueRatios[ratioIndex + 1];
+        const pointAt = (ratio) => ({
+          x: source.x + (target.x - source.x) * ratio,
+          y: source.y + (target.y - source.y) * ratio,
+        });
+        const midpoint = pointAt((startRatio + endRatio) / 2);
+        const occluded = pointInPath(midpoint, outerBoundary)
+          && !pointInPath(midpoint, innerBoundary);
+        if (occluded) {
+          currentRun = null;
+          continue;
+        }
+        const start = pointAt(startRatio);
+        const end = pointAt(endRatio);
+        if (!currentRun) {
+          currentRun = [start, end];
+          runs.push(currentRun);
+        } else {
+          currentRun.push(end);
+        }
+      }
+    }
+    if (runs.length > 1) {
+      const first = runs[0];
+      const last = runs[runs.length - 1];
+      if (starDistance(first[0], last[last.length - 1]) < 1e-6) {
+        runs[0] = [...last.slice(0, -1), ...first];
+        runs.pop();
+      }
+    }
+    return runs;
+  };
+  const constellationEdge = (a, b) => ({ a, b, distance: starDistance(a, b) });
+  // Euclidean MST gives a non-crossing base with incident angles >=60deg; loops keep an explicit 30deg floor.
+  const minimumSpanningTree = (cluster) => {
+    const connected = new Set(cluster.slice(0, 1));
+    const remaining = new Set(cluster.slice(1));
+    const tree = [];
+    while (remaining.size) {
+      let shortest = null;
+      connected.forEach((a) => remaining.forEach((b) => {
+        const candidate = constellationEdge(a, b);
+        if (!shortest || candidate.distance < shortest.distance) shortest = candidate;
+      }));
+      tree.push(shortest);
+      connected.add(shortest.b);
+      remaining.delete(shortest.b);
+    }
+    return tree;
+  };
+  const incidentAngle = (origin, left, right) => {
+    const leftVector = { x: left.x - origin.x, y: left.y - origin.y };
+    const rightVector = { x: right.x - origin.x, y: right.y - origin.y };
+    const cosine = (leftVector.x * rightVector.x + leftVector.y * rightVector.y)
+      / (Math.hypot(leftVector.x, leftVector.y) * Math.hypot(rightVector.x, rightVector.y));
+    return Math.acos(Math.max(-1, Math.min(1, cosine)));
+  };
+  const acceptsEdgeAngles = (candidate, graph) => [candidate.a, candidate.b].every((star) => {
+    const other = star === candidate.a ? candidate.b : candidate.a;
+    return graph
+      .filter((edge) => edge.a === star || edge.b === star)
+      .every((edge) => incidentAngle(star, other, edge.a === star ? edge.b : edge.a) >= 30 * Math.PI / 180);
+  });
+  const spreadCluster = (seed, pool, targetSize) => {
+    const cluster = [seed];
+    while (cluster.length < targetSize) {
+      const next = pool
+        .filter((star) => !cluster.includes(star))
+        .map((star) => ({ star, spread: Math.min(...cluster.map((selected) => starDistance(star, selected))) }))
+        .sort((a, b) => b.spread - a.spread)[0]?.star;
+      if (!next) break;
+      cluster.push(next);
+    }
+    return cluster;
   };
   const scheduleShootingStar = (now) => {
     const normal = Math.sqrt(-2 * Math.log(1 - Math.random())) * Math.cos(Math.PI * 2 * Math.random());
-    const delay = Math.max(12000, Math.min(55000, 30000 + normal * 7000));
+    const delay = Math.max(35000, Math.min(140000, 80000 + normal * 18000));
     nextShootingAt = now + delay;
   };
   const scheduleBlink = (now) => {
-    nextBlinkAt = now + 1800 + Math.pow(Math.random(), 1.6) * 6500;
+    nextBlinkAt = now + 1200 + Math.pow(Math.random(), 1.6) * 4700;
   };
   const launchBlink = (now) => {
     const weighted = stars.map((star) => ({ star, weight: 1 / Math.pow(star.radius + .25, 1.8) }));
@@ -179,13 +363,21 @@ function startAtlasSky() {
       value = Math.imul(value ^ (value >>> 15), 0x846ca68b);
       return ((value ^ (value >>> 16)) >>> 0) / 4294967296;
     };
-    const count = Math.max(32, Math.min(110, Math.floor(width * height / 22000)));
-    stars = [];
-    for (let attempt = 0; stars.length < count && attempt < count * 12; attempt += 1) {
+    const area = width * height;
+    const anchorCount = Math.max(36, Math.min(120, Math.floor(area / 16000)));
+    const faintCount = Math.max(60, Math.min(420, Math.floor(area / 4200)));
+    const anchorSpacing = Math.max(20, Math.min(35, Math.min(width, height) * .035));
+    const anchorStars = [];
+    for (let attempt = 0; anchorStars.length < anchorCount && attempt < anchorCount * 20; attempt += 1) {
+      const brightness = Math.pow(random(attempt * 7 + 3), 4);
       const star = {
-        x: 12 + random(attempt * 3 + 1) * (width - 24),
-        y: 9 + random(attempt * 3 + 2) * (height - 18),
-        radius: .55 + random(attempt * 3 + 3) * 1.7,
+        x: 12 + random(attempt * 7 + 1) * (width - 24),
+        y: 9 + random(attempt * 7 + 2) * (height - 18),
+        radius: .55 + brightness * 1.85,
+        opacity: .38 + brightness * .48,
+        spacing: anchorSpacing * (.52 + brightness * .48),
+        bright: true,
+        spiked: random(attempt * 7 + 4) < .14,
         parallax: .006 + random(attempt + 37) * .009,
         driftRadius: 0,
         driftRank: random(attempt + 47),
@@ -196,101 +388,435 @@ function startAtlasSky() {
         attractionY: 0,
         glow: 0,
       };
-      if (stars.every((other) => Math.hypot(star.x - other.x, star.y - other.y) > 30)) stars.push(star);
+      if (anchorStars.every((other) => starDistance(star, other) > Math.min(star.spacing, other.spacing))) anchorStars.push(star);
     }
+    const faintStars = [];
+    for (let attempt = 0; faintStars.length < faintCount && attempt < faintCount * 8; attempt += 1) {
+      const brightness = Math.pow(random(5000 + attempt * 7 + 3), 4);
+      const star = {
+        x: 5 + random(5000 + attempt * 7 + 1) * (width - 10),
+        y: 4 + random(5000 + attempt * 7 + 2) * (height - 8),
+        radius: .18 + brightness * .68,
+        opacity: .1 + brightness * .28,
+        bright: false,
+        spiked: false,
+        parallax: .003 + random(5037 + attempt) * .008,
+        driftRadius: 0,
+        driftRank: random(5047 + attempt),
+        driftPhase: random(5067 + attempt) * Math.PI * 2,
+        driftRate: .00004 + random(5077 + attempt) * .00005,
+        pullStrength: .012,
+        attractionX: 0,
+        attractionY: 0,
+        glow: 0,
+      };
+      if (anchorStars.every((other) => starDistance(star, other) > 7)
+        && faintStars.every((other) => starDistance(star, other) > 3.5)) faintStars.push(star);
+    }
+    stars = [...faintStars, ...anchorStars];
+    const constellationCellSize = Math.max(90, Math.min(150, Math.min(width, height) * .15));
+    const constellationColumns = Math.ceil(width / constellationCellSize);
+    const constellationRows = Math.ceil(height / constellationCellSize);
+    const constellationStars = new Set();
+    for (let row = 0; row < constellationRows; row += 1) {
+      for (let column = 0; column < constellationColumns; column += 1) {
+        stars
+          .filter((star) => star.x >= column * constellationCellSize && star.x < (column + 1) * constellationCellSize
+            && star.y >= row * constellationCellSize && star.y < (row + 1) * constellationCellSize)
+          .sort((a, b) => b.radius - a.radius || b.opacity - a.opacity)
+          .slice(0, 2)
+          .forEach((star) => constellationStars.add(star));
+      }
+    }
+    const remaining = new Set(constellationStars);
+    const coverageColumns = width < 420 ? 1 : Math.min(6, Math.max(2, Math.ceil(width / 360)));
+    const coverageRows = width < 600
+      ? Math.min(4, Math.max(1, Math.ceil(height / 210)))
+      : Math.min(4, Math.max(1, Math.ceil(height / 280)));
+    const maxClusters = coverageColumns * coverageRows;
+    const seedOrder = [...constellationStars]
+      .map((star, index) => ({ star, rank: random(9000 + index) }))
+      .sort((a, b) => a.rank - b.rank)
+      .map(({ star }) => star);
+    const coverageRegions = Array.from({ length: maxClusters }, (_, index) => {
+      const column = index % coverageColumns;
+      const row = Math.floor(index / coverageColumns);
+      return {
+        x: [column / coverageColumns, (column + 1) / coverageColumns],
+        y: [row / coverageRows, (row + 1) / coverageRows],
+      };
+    });
+    const inRegion = (star, region) => star.x >= region.x[0] * width && star.x <= region.x[1] * width
+      && star.y >= region.y[0] * height && star.y <= region.y[1] * height;
+    edges = [];
+    const connectedClusters = [];
+    const edgeIsDrawable = (edge) => edge.distance > Math.max(edge.a.radius, .5) + Math.max(edge.b.radius, .5) + 8;
+    const edgeAvoidsStars = (edge, cluster) => {
+      const visibleStars = new Set([
+        ...anchorStars.filter((star) => star.bright),
+        ...connectedClusters.flat(),
+        ...cluster,
+      ]);
+      return [...visibleStars].every((star) => star === edge.a || star === edge.b
+        || distanceToSegment(star, edge.a, edge.b) >= 7);
+    };
+    const treeIsClear = (tree, cluster) => tree.every((candidate) => edgeIsDrawable(candidate)
+      && !edges.some((edge) => intersects(candidate, edge))
+      && edgeAvoidsStars(candidate, cluster));
+    const tryConstellation = (seed, clusterIndex, radiusScale, region) => {
+      if (connectedClusters.length >= maxClusters || !remaining.has(seed)) return false;
+      const searchRadius = Math.max(88, Math.min(width, height) * (.12 + random(9100 + clusterIndex) * .06)) * radiusScale;
+      const targetSize = 6 + Math.floor(random(9200 + clusterIndex) * (width < 600 ? 3 : 5));
+      const pool = [...remaining].filter((star) => star !== seed && inRegion(star, region)
+        && starDistance(seed, star) <= searchRadius);
+      const cluster = spreadCluster(seed, pool, targetSize);
+      if (cluster.length < 6) return false;
+      const span = Math.max(...cluster.flatMap((a) => cluster.map((b) => starDistance(a, b))));
+      if (span < Math.max(65, Math.min(width, height) * .12)) return false;
+      const tree = minimumSpanningTree(cluster);
+      if (!treeIsClear(tree, cluster)) return false;
+      const loop = cluster.flatMap((a, index) => cluster.slice(index + 1).map((b) => constellationEdge(a, b)))
+        .filter((candidate) => !tree.some((edge) => (edge.a === candidate.a && edge.b === candidate.b)
+          || (edge.a === candidate.b && edge.b === candidate.a))
+          && candidate.distance < span * .72
+          && edgeIsDrawable(candidate)
+          && acceptsEdgeAngles(candidate, tree)
+          && edgeAvoidsStars(candidate, cluster)
+          && !tree.some((edge) => intersects(candidate, edge))
+          && !edges.some((edge) => intersects(candidate, edge)))
+        .sort((a, b) => Math.abs(a.distance - span * .45) - Math.abs(b.distance - span * .45))[0];
+      const constellationEdges = random(9300 + clusterIndex) < .42 && loop ? [...tree, loop] : tree;
+      edges.push(...constellationEdges);
+      connectedClusters.push(cluster);
+      cluster.forEach((star) => remaining.delete(star));
+      return true;
+    };
+    const coveredRegions = new Set();
+    for (const radiusScale of [1, 1.35, 1.7]) {
+      coverageRegions.forEach((region, regionIndex) => {
+        if (coveredRegions.has(regionIndex)) return;
+        const center = {
+          x: width * (region.x[0] + region.x[1]) / 2,
+          y: height * (region.y[0] + region.y[1]) / 2,
+        };
+        const accepted = seedOrder
+          .filter((seed) => remaining.has(seed) && inRegion(seed, region))
+          .sort((a, b) => starDistance(a, center) - starDistance(b, center))
+          .some((seed) => tryConstellation(seed, seedOrder.indexOf(seed), radiusScale, region));
+        if (accepted) coveredRegions.add(regionIndex);
+      });
+      if (coveredRegions.size >= coverageRegions.length) break;
+    }
+    coverageRegions.forEach((region, regionIndex) => {
+      if (coveredRegions.has(regionIndex)) return;
+      const usedStars = new Set(connectedClusters.flat());
+      const regionalStars = stars
+        .filter((star) => !usedStars.has(star) && inRegion(star, region))
+        .sort((a, b) => b.radius - a.radius || b.opacity - a.opacity);
+      const fallbackRadius = Math.max(88, Math.min(width, height) * .16);
+      let fallback = null;
+      regionalStars.some((seed) => {
+        const localStars = regionalStars.filter((star) => star !== seed && starDistance(seed, star) <= fallbackRadius);
+        for (let targetSize = Math.min(8, localStars.length + 1); targetSize >= 6; targetSize -= 1) {
+          const cluster = spreadCluster(seed, localStars, targetSize);
+          const tree = minimumSpanningTree(cluster);
+          if (!treeIsClear(tree, cluster)) continue;
+          fallback = { cluster, tree, synthetic: false };
+          return true;
+        }
+        return false;
+      });
+      const baseTemplate = [
+        [-.85, -.15], [-.5, -.62], [-.15, -.25], [.25, -.55], [.72, -.2], [.48, .38], [-.18, .65],
+      ];
+      const template = baseTemplate.map(([x, y], index) => [
+        x + (random(9700 + regionIndex * 20 + index) - .5) * .08,
+        y + (random(9800 + regionIndex * 20 + index) - .5) * .08,
+      ]);
+      const regionWidth = (region.x[1] - region.x[0]) * width;
+      const regionHeight = (region.y[1] - region.y[0]) * height;
+      const scale = Math.max(24, Math.min(fallbackRadius * .55, regionWidth * .25, regionHeight * .25));
+      const positionOffset = Math.floor(random(9400 + regionIndex) * 9);
+      const angleOffset = random(9500 + regionIndex) * Math.PI * 2;
+      const mirror = random(9600 + regionIndex) < .5 ? -1 : 1;
+      const makeFallbackStar = (x, y) => ({
+        x,
+        y,
+        radius: .55,
+        opacity: .4,
+        bright: true,
+        spiked: false,
+        parallax: .01,
+        driftRadius: 0,
+        driftRank: 1,
+        driftPhase: 0,
+        driftRate: .00005,
+        pullStrength: .022,
+        attractionX: 0,
+        attractionY: 0,
+        glow: 0,
+      });
+      const templateCluster = (centerX, centerY, angle) => template.map(([x, y]) => {
+        const mirroredX = x * mirror;
+        return makeFallbackStar(
+          centerX + (mirroredX * Math.cos(angle) - y * Math.sin(angle)) * scale,
+          centerY + (mirroredX * Math.sin(angle) + y * Math.cos(angle)) * scale,
+        );
+      });
+      const clusterFits = (cluster) => cluster.every((star) => inRegion(star, region));
+      const treeHasSafeGeometry = (tree, cluster) => clusterFits(cluster)
+        && tree.every((candidate) => edgeIsDrawable(candidate)
+          && !edges.some((edge) => intersects(candidate, edge)));
+      let forcedFallback = null;
+      for (let step = 0; !fallback && step < 9; step += 1) {
+        const position = (step + positionOffset) % 9;
+        const centerX = width * (region.x[0] + (region.x[1] - region.x[0]) * (.3 + (position % 3) * .2));
+        const centerY = height * (region.y[0] + (region.y[1] - region.y[0]) * (.3 + Math.floor(position / 3) * .2));
+        for (let turn = 0; !fallback && turn < 4; turn += 1) {
+          const cluster = templateCluster(centerX, centerY, angleOffset + turn * Math.PI / 4);
+          const tree = minimumSpanningTree(cluster);
+          if (!treeHasSafeGeometry(tree, cluster)) continue;
+          forcedFallback ||= { cluster, tree, synthetic: true };
+          if (treeIsClear(tree, cluster)) fallback = { cluster, tree, synthetic: true };
+        }
+      }
+      if (!fallback && forcedFallback) {
+        fallback = forcedFallback;
+        anchorStars
+          .filter((star) => star.bright && !fallback.cluster.includes(star)
+            && fallback.tree.some((edge) => distanceToSegment(star, edge.a, edge.b) < 7))
+          .forEach((star) => {
+            star.bright = false;
+            star.radius = Math.min(star.radius, .45);
+            star.opacity = Math.min(star.opacity, .3);
+          });
+      }
+      if (!fallback) return;
+      if (fallback.synthetic) fallback.cluster.forEach((star) => {
+        stars.push(star);
+        anchorStars.push(star);
+        constellationStars.add(star);
+      });
+      edges.push(...fallback.tree);
+      connectedClusters.push(fallback.cluster);
+      fallback.cluster.forEach((star) => remaining.delete(star));
+      coveredRegions.add(regionIndex);
+    });
+    const connectedStars = new Set(connectedClusters.flat());
+    connectedStars.forEach((star) => {
+      star.parallax = .01;
+      star.radius = Math.max(star.radius, .5);
+      star.opacity = Math.max(star.opacity, .4);
+      star.bright = true;
+    });
     const orbCount = Math.max(5, Math.min(14, Math.floor(height / 260)));
     const decoratedCount = Math.min(orbCount - 1, Math.max(2, Math.ceil(orbCount * .5)));
     const decorated = new Set(Array.from({ length: orbCount }, (_, index) => index)
       .sort((a, b) => random(291 + a) - random(291 + b))
       .slice(0, decoratedCount));
-    const orbDesigns = ["ringed", "beaded", "crest", "sun"];
-    orbs = Array.from({ length: orbCount }, (_, index) => ({
-      x: width * (.04 + random(300 + index * 3) * .92),
-      y: height * (.04 + random(301 + index * 3) * .92),
-      radius: 15 + random(340 + index) * 34,
-      parallax: .018 + random(370 + index) * .024,
-      pullStrength: .06,
-      warmth: random(380 + index),
-      angle: random(400 + index) * Math.PI * 2,
-      design: decorated.has(index) ? orbDesigns[Math.floor(random(410 + index) * orbDesigns.length)] : "plain",
-      beadCount: 1 + Math.floor(random(420 + index) * 3),
-      beadStart: random(430 + index) * Math.PI * 2,
-      rayCount: 9 + Math.floor(random(440 + index) * 6),
-      crestInnerScale: .72 + random(450 + index) * .1,
-      crestOffsetScale: .34 + random(460 + index) * .1,
-      attractionX: 0,
-      attractionY: 0,
-      glow: 0,
-    }));
-    const remaining = new Set(stars);
-    const candidates = [];
-    const maxClusters = Math.max(2, Math.min(4, Math.floor(stars.length / 18)));
-    [...stars].sort((a, b) => random(a.x + a.y) - random(b.x + b.y)).forEach((seed, clusterIndex) => {
-      if (candidates.length >= maxClusters * 3) return;
-      if (!remaining.has(seed)) return;
-      const targetSize = 3 + Math.floor(random(440 + clusterIndex) * 2);
-      const nearest = [...remaining]
-        .filter((star) => star !== seed)
-        .sort((a, b) => Math.hypot(seed.x - a.x, seed.y - a.y) - Math.hypot(seed.x - b.x, seed.y - b.y))
-        .slice(0, targetSize - 1);
-      if (nearest.length < 2) return;
-      const cluster = [seed, ...nearest];
-      cluster.forEach((star) => remaining.delete(star));
-      candidates.push(cluster);
-    });
-    edges = [];
-    const connectedClusters = [];
-    candidates.forEach((cluster) => {
-      if (connectedClusters.length >= maxClusters) return;
-      const relaxed = connectedClusters.length < 2;
-      const ordered = constellationOrders(cluster).find((candidateOrder) => {
-        const candidateChain = constellationChain(candidateOrder);
-        return candidateChain.every((candidate, index) => candidate.distance >= 30
-          && !edges.some((edge) => intersects(candidate, edge))
-          && !candidateChain.slice(0, index).some((edge) => intersects(candidate, edge))
-          && (relaxed || !stars.some((star) => star !== candidate.a && star !== candidate.b && distanceToSegment(star, candidate.a, candidate.b) < 8)));
+    const orbDesigns = [
+      "ringed", "beaded", "crest", "sun", "orbital", "halo", "conjunction", "cratered", "gas-giant", "black-hole",
+    ];
+    const randomOrbDesigns = orbDesigns.flatMap((design) => (
+      Array.from({ length: design === "black-hole" ? 1 : 4 }, () => design)
+    ));
+    const atlasParameters = new URLSearchParams(window.location.search);
+    const requestedPlanet = atlasParameters.get("planets")?.toLowerCase().replaceAll("-", "");
+    const requestedDesign = orbDesigns.find((design) => design.replaceAll("-", "") === requestedPlanet);
+    const orbExtent = (orb) => {
+      if (orb.design === "ringed") return orb.radius * orb.ringScale;
+      if (orb.design === "beaded") return orb.radius + 4;
+      if (orb.design === "orbital") return orb.radius * orb.orbitScale * (1 + (orb.orbitCount - 1) * .16) + orb.orbitMoonRadius;
+      if (orb.design === "halo") return orb.radius * orb.haloScale;
+      if (orb.design === "conjunction") return orb.radius * (orb.conjunctionDistance + orb.companionScale);
+      if (orb.design === "black-hole") {
+        const horizonScale = orb.blackHoleShadowScale / schwarzschildCriticalImpact;
+        const sourceRadius = orb.blackHoleScale / horizonScale;
+        const maximumImpact = sourceRadius / Math.sqrt(1 - 1 / sourceRadius);
+        return orb.radius * horizonScale * maximumImpact + 4;
+      }
+      return orb.radius;
+    };
+    orbs = [];
+    for (let index = 0; index < orbCount; index += 1) {
+      const design = requestedDesign
+        || (decorated.has(index)
+          ? randomOrbDesigns[Math.floor(random(410 + index) * randomOrbDesigns.length)]
+          : "plain");
+      const craterTarget = 13 + Math.floor(random(1700 + index) * 7);
+      const largeCraterCount = 3 + Math.floor(random(1710 + index) * 3);
+      const edgeCraterCount = 1 + Math.floor(random(1790 + index) * 3);
+      const craters = [];
+      const craterPhase = random(1780 + index) * Math.PI * 2;
+      for (let attempt = 0; craters.length < craterTarget && attempt < 180; attempt += 1) {
+        const seed = 2000 + index * 1000 + attempt * 4;
+        const craterIndex = craters.length;
+        const large = craters.length < largeCraterCount;
+        const edge = craterIndex >= craterTarget - edgeCraterCount;
+        const craterRadius = edge
+          ? .06 + random(seed) * .08
+          : large
+            ? .105 + random(seed) * .09
+            : .025 + random(seed) * .065;
+        const distance = edge
+          ? 1 - craterRadius * (.25 + random(seed + 1) * .45)
+          : Math.sqrt(random(seed + 1)) * (.82 - craterRadius);
+        const angle = craterPhase + craterIndex * Math.PI * (3 - Math.sqrt(5))
+          + (random(seed + 2) - .5) * .45;
+        const crater = {
+          x: Math.cos(angle) * distance,
+          y: Math.sin(angle) * distance,
+          radius: craterRadius,
+          dot: !large && !edge && (craterIndex - largeCraterCount) % 4 === 0,
+        };
+        if (craters.every((other) => (
+          Math.hypot(crater.x - other.x, crater.y - other.y) > crater.radius + other.radius + .025
+        ))) craters.push(crater);
+      }
+      const gasStyle = random(1720 + index) < .5 ? "contour" : "stripes";
+      const gasBandCount = (gasStyle === "contour" ? 5 : 7) + Math.floor(random(1730 + index) * 4);
+      const gasGapCount = gasBandCount - 1;
+      const orbRadius = design === "black-hole"
+        ? 11 + Math.pow(random(340 + index), 3) * 45
+        : 15 + random(340 + index) * 34;
+      const wideGasGap = Math.floor(gasGapCount / 2);
+      const tightGasGap = Math.max(1, wideGasGap - 2);
+      const gasBandWeights = Array.from({ length: gasGapCount }, (_, gapIndex) => {
+        if (gapIndex === tightGasGap) return .45 + random(2800 + index * 30 + gapIndex) * .1;
+        if (gapIndex === wideGasGap) return 3.5 + random(2800 + index * 30 + gapIndex) * .5;
+        return .65 + random(2800 + index * 30 + gapIndex) * .25;
       });
-      if (!ordered) return;
-      const chain = constellationChain(ordered);
-      edges.push(...chain);
-      connectedClusters.push(ordered);
-    });
-    if (connectedClusters.length < 2) {
-      const used = new Set(connectedClusters.flat());
-      const available = stars.filter((star) => !used.has(star));
-      const triples = available.flatMap((a) => {
-        const nearest = available
-          .filter((star) => star !== a)
-          .sort((left, right) => Math.hypot(a.x - left.x, a.y - left.y) - Math.hypot(a.x - right.x, a.y - right.y))
-          .slice(0, 8);
-        return nearest.flatMap((b, index) => nearest.slice(index + 1).map((c) => ({
-          stars: [a, b, c],
-          span: Math.max(Math.hypot(a.x - b.x, a.y - b.y), Math.hypot(a.x - c.x, a.y - c.y), Math.hypot(b.x - c.x, b.y - c.y)),
-        })));
+      const gasGapWeightTotal = gasBandWeights.reduce((total, gap) => total + gap, 0);
+      const minimumGasGap = 1.6;
+      const distributableGasSpan = orbRadius * 1.44 - minimumGasGap * gasGapCount;
+      const gasBandGaps = gasBandWeights.map((weight) => (
+        minimumGasGap + distributableGasSpan * weight / gasGapWeightTotal
+      ));
+      let gasGapOffset = -orbRadius * .72;
+      const gasBandPositions = Array.from({ length: gasBandCount }, (_, bandIndex) => {
+        if (bandIndex) gasGapOffset += gasBandGaps[bandIndex - 1];
+        return gasGapOffset / orbRadius;
       });
-      triples.sort((a, b) => a.span - b.span);
-      triples.some(({ stars: triple }) => {
-        if (connectedClusters.length >= 2) return true;
-        if (triple.some((star) => used.has(star))) return false;
-        const order = constellationOrders(triple).find((ordered) => {
-          const chain = constellationChain(ordered);
-          return chain.every((candidate, index) => !edges.some((edge) => intersects(candidate, edge))
-            && !chain.slice(0, index).some((edge) => intersects(candidate, edge)));
-        });
-        if (!order) return false;
-        const chain = constellationChain(order);
-        edges.push(...chain);
-        connectedClusters.push(order);
-        order.forEach((star) => used.add(star));
-        return connectedClusters.length >= 2;
-      });
+      const ringScale = 1.35 + random(1490 + index) * 1.05;
+      const ringMinorScale = .1 + random(1480 + index) * .42;
+      const orbitScale = 1.3 + random(1600 + index) * .55;
+      const orbitCount = 1 + Math.floor(random(1630 + index) * 2);
+      const outerOrbitScale = orbitScale * (1 + (orbitCount - 1) * .16);
+      const orbitMinorScale = .1 + random(1610 + index) * .42;
+      const blackHoleScale = 1.75 + random(1810 + index) * .5;
+      const blackHoleMinorScale = .2 + random(1820 + index) * .14;
+      const blackHoleBandCount = 2 + Math.floor(random(1840 + index) * 2);
+      const blackHoleBandSpread = .42 + random(1850 + index) * .06;
+      const blackHoleSquash = blackHoleMinorScale / blackHoleScale;
+      const blackHolePointCount = 96;
+      const orb = {
+        radius: orbRadius,
+        parallax: .01,
+        pullStrength: .06,
+        warmth: random(380 + index),
+        angle: random(400 + index) * Math.PI * 2,
+        design,
+        ringScale,
+        ringAngle: random(1470 + index) * Math.PI * 2,
+        ringSquash: ringMinorScale / ringScale,
+        orbitScale,
+        orbitSquash: orbitMinorScale / outerOrbitScale,
+        orbitAngle: random(1620 + index) * Math.PI * 2,
+        orbitCount,
+        orbitPhase: random(1640 + index) * Math.PI * 2,
+        orbitMoonRadius: 1.5 + random(1650 + index) * 2,
+        blackHoleScale,
+        blackHoleSquash,
+        blackHoleShadowScale: .65,
+        blackHoleAngle: random(1830 + index) * Math.PI * 2,
+        blackHoleAngles: design === "black-hole"
+          ? evenlySpacedEllipseAngles(blackHoleSquash, blackHolePointCount)
+          : [],
+        blackHoleBandScales: Array.from({ length: blackHoleBandCount }, (_, bandIndex) => (
+          1 - blackHoleBandSpread * Math.pow(bandIndex / (blackHoleBandCount - 1), .7)
+        )),
+        haloScale: 1.25 + random(1660 + index) * .5,
+        haloCount: 2 + Math.floor(random(1670 + index) * 2),
+        haloPhase: random(1680 + index) * Math.PI * 2,
+        conjunctionDistance: 1.4 + random(1690 + index) * .55,
+        companionScale: .2 + random(1760 + index) * .22,
+        conjunctionAngle: random(1770 + index) * Math.PI * 2,
+        gasStyle,
+        gasBandCount,
+        gasBandPositions,
+        gasPhase: random(1740 + index) * Math.PI * 2,
+        gasFlow: .1 + random(1750 + index) * .1,
+        craters,
+        beadCount: 1 + Math.floor(random(420 + index) * 3),
+        beadStart: random(430 + index) * Math.PI * 2,
+        rayCount: 9 + Math.floor(random(440 + index) * 6),
+        crestInnerScale: .72 + random(450 + index) * .1,
+        crestOffsetScale: .34 + random(460 + index) * .1,
+        attractionX: 0,
+        attractionY: 0,
+        glow: 0,
+      };
+      const extent = orbExtent(orb);
+      const margin = extent + 6;
+      const availableWidth = width - margin * 2;
+      const availableHeight = height - margin * 2;
+      if (availableWidth < 0 || availableHeight < 0) continue;
+      const preferOpenSky = random(470 + index) < .8;
+      let fallback = null;
+      for (let attempt = 0; attempt < 120; attempt += 1) {
+        const seed = 10000 + index * 300 + attempt * 2;
+        const candidate = {
+          ...orb,
+          x: margin + random(seed) * availableWidth,
+          y: margin + random(seed + 1) * availableHeight,
+        };
+        if (!orbs.every((other) => starDistance(candidate, other) > extent + orbExtent(other) + 10)) continue;
+        fallback ||= candidate;
+        const outsideConstellations = edges.every((edge) => (
+          distanceToSegment(candidate, edge.a, edge.b) > extent + 16
+        ));
+        if (!preferOpenSky || outsideConstellations) {
+          fallback = candidate;
+          break;
+        }
+      }
+      if (fallback) {
+        if (design === "black-hole") {
+          const horizonScale = fallback.blackHoleShadowScale / schwarzschildCriticalImpact;
+          fallback.blackHoleImages = fallback.blackHoleBandScales.map((bandScale) => {
+            const sourceRadius = fallback.blackHoleScale * bandScale / horizonScale;
+            return {
+              direct: traceSchwarzschildRing(
+                sourceRadius, fallback.blackHoleSquash, fallback.blackHoleAngles, "direct",
+              ),
+              firstIndirect: traceSchwarzschildRing(
+                sourceRadius, fallback.blackHoleSquash, fallback.blackHoleAngles, "indirect",
+              ),
+              secondIndirect: traceSchwarzschildRing(
+                sourceRadius, fallback.blackHoleSquash, fallback.blackHoleAngles, "direct", 1,
+              ),
+            };
+          });
+          const outerDirect = fallback.blackHoleImages[0].direct;
+          const innerDirect = fallback.blackHoleImages[fallback.blackHoleImages.length - 1].direct;
+          fallback.blackHoleImages.forEach((band) => {
+            band.visibleFirstIndirect = clipPathOutsideAnnulus(
+              band.firstIndirect, outerDirect, innerDirect,
+            );
+            band.visibleSecondIndirect = clipPathOutsideAnnulus(
+              band.secondIndirect, outerDirect, innerDirect,
+            );
+          });
+        }
+        orbs.push(fallback);
+      }
     }
-    const connectedStars = new Set(connectedClusters.flat());
-    connectedStars.forEach((star) => { star.parallax = .01; });
     const freeStars = stars.filter((star) => !connectedStars.has(star));
-    const driftCount = Math.min(freeStars.length, Math.max(2, Math.min(8, Math.round(stars.length * .14))));
+    const driftCount = Math.min(freeStars.length, Math.max(4, Math.min(18, Math.round(stars.length * .14))));
     [...freeStars].sort((a, b) => a.driftRank - b.driftRank).slice(0, driftCount).forEach((star, index) => {
-      star.driftRadius = 1.4 + random(510 + index) * 3;
+      star.driftRadius = 4 + Math.pow(random(510 + index), 2) * 196;
+      const driftSpeed = .05 + random(1510 + index) * .05;
+      star.driftRate = driftSpeed / 1000 / star.driftRadius;
     });
     bodies = [...stars, ...orbs];
     scrollOrigin = window.scrollY;
@@ -331,16 +857,16 @@ function startAtlasSky() {
         glow: body.glow,
       }];
     }));
-    const edgesCross = (points) => edges.some((edge, index) => edges.slice(index + 1).some((other) => intersects(
+    const movingEdges = edges.filter(({ a, b }) => [a, b].some((body) => (
+      influence.has(body) || Math.abs(body.attractionX) + Math.abs(body.attractionY) > .04
+    )));
+    const edgesCross = (points) => movingEdges.some((edge) => edges.some((other) => edge !== other && intersects(
       { a: points.get(edge.a), b: points.get(edge.b), sourceA: edge.a, sourceB: edge.b },
       { a: points.get(other.a), b: points.get(other.b), sourceA: other.a, sourceB: other.b },
     )));
     let attractionScale = 1;
     let rendered = renderBodies(attractionScale);
-    const edgeMotion = edges.some(({ a, b }) => [a, b].some((body) => (
-      influence.has(body) || Math.abs(body.attractionX) + Math.abs(body.attractionY) > .04
-    )));
-    if (edgeMotion && edgesCross(rendered)) {
+    if (movingEdges.length && edgesCross(rendered)) {
       let safe = 0;
       let unsafe = 1;
       for (let attempt = 0; attempt < 7; attempt += 1) {
@@ -351,6 +877,93 @@ function startAtlasSky() {
       attractionScale = safe;
       rendered = renderBodies(attractionScale);
     }
+    const drawBlackHole = (orb) => {
+      const point = rendered.get(orb);
+      const core = orb.warmth > .5 ? "220, 193, 137" : "157, 185, 220";
+      const shadowRadius = orb.radius * orb.blackHoleShadowScale;
+      const horizonRadius = shadowRadius / schwarzschildCriticalImpact;
+      const toScreen = (target) => ({
+        x: target.x * horizonRadius,
+        y: target.y * horizonRadius,
+      });
+      const appendPoints = (points) => points.forEach((target, pointIndex) => {
+        const screenPoint = toScreen(target);
+        if (pointIndex) sky.lineTo(screenPoint.x, screenPoint.y);
+        else sky.moveTo(screenPoint.x, screenPoint.y);
+      });
+      const strokeRuns = (runs) => {
+        sky.beginPath();
+        runs.forEach(appendPoints);
+        sky.stroke();
+      };
+      const strokeDirectRuns = (points, foreground) => {
+        sky.beginPath();
+        let drawing = false;
+        for (let index = 0; index < points.length - 1; index += 1) {
+          const source = points[index];
+          const target = points[index + 1];
+          const sourceVisible = source.foreground === foreground;
+          const targetVisible = target.foreground === foreground;
+          const sourcePoint = toScreen(source);
+          const targetPoint = toScreen(target);
+          const transition = {
+            x: (sourcePoint.x + targetPoint.x) / 2,
+            y: (sourcePoint.y + targetPoint.y) / 2,
+          };
+          if (sourceVisible && !drawing) {
+            sky.moveTo(sourcePoint.x, sourcePoint.y);
+            drawing = true;
+          }
+          if (sourceVisible && targetVisible) sky.lineTo(targetPoint.x, targetPoint.y);
+          else if (sourceVisible) {
+            sky.lineTo(transition.x, transition.y);
+            drawing = false;
+          } else if (targetVisible) {
+            sky.moveTo(transition.x, transition.y);
+            sky.lineTo(targetPoint.x, targetPoint.y);
+            drawing = true;
+          }
+        }
+        sky.stroke();
+      };
+      sky.save();
+      sky.translate(point.x, point.y);
+      sky.rotate(orb.blackHoleAngle);
+      sky.lineCap = "round";
+      sky.shadowColor = `rgba(${core}, ${.28 + point.glow * .34})`;
+      sky.shadowBlur = .3 + point.glow * 2;
+      // Extra windings converge below pixel resolution, so one capped line represents the family.
+      sky.globalAlpha = .28;
+      sky.lineWidth = .4;
+      sky.strokeStyle = `rgba(${core}, ${.16 + point.glow * .14})`;
+      strokeRuns(orb.blackHoleImages[0].visibleSecondIndirect);
+      sky.globalAlpha = .7;
+      sky.lineWidth = .65;
+      sky.strokeStyle = `rgba(${core}, ${.18 + point.glow * .16})`;
+      orb.blackHoleImages.forEach((band) => strokeRuns(band.visibleFirstIndirect));
+      sky.globalAlpha = .88;
+      sky.lineWidth = .75;
+      sky.strokeStyle = `rgba(${core}, ${.2 + point.glow * .18})`;
+      orb.blackHoleImages.forEach((band) => strokeDirectRuns(band.direct, false));
+      sky.globalAlpha = 1;
+      sky.shadowBlur = 0;
+      const outerDirect = orb.blackHoleImages[0].direct;
+      const innerDirect = orb.blackHoleImages[orb.blackHoleImages.length - 1].direct;
+      sky.save();
+      sky.beginPath();
+      sky.arc(0, 0, shadowRadius, 0, Math.PI * 2);
+      sky.clip();
+      sky.beginPath();
+      sky.arc(0, 0, shadowRadius, 0, Math.PI * 2);
+      appendPoints(outerDirect);
+      appendPoints(innerDirect);
+      sky.fillStyle = "rgba(1, 4, 10, .22)";
+      sky.fill("evenodd");
+      sky.restore();
+      sky.shadowBlur = .3 + point.glow * 2;
+      orb.blackHoleImages.forEach((band) => strokeDirectRuns(band.direct, true));
+      sky.restore();
+    };
     edges.forEach((edge) => {
       const a = rendered.get(edge.a);
       const b = rendered.get(edge.b);
@@ -366,6 +979,27 @@ function startAtlasSky() {
       sky.lineTo(b.x - dx / distance * endGap, b.y - dy / distance * endGap);
       sky.stroke();
     });
+    const strokeOccludedEllipse = (planetRadius, ellipseRadius, squash, angle) => {
+      sky.save();
+      sky.rotate(angle);
+      sky.save();
+      sky.beginPath();
+      sky.rect(-ellipseRadius - 4, -ellipseRadius - 4, ellipseRadius * 2 + 8, ellipseRadius * 2 + 8);
+      sky.arc(0, 0, planetRadius + 1.25, 0, Math.PI * 2);
+      sky.clip("evenodd");
+      sky.scale(1, squash);
+      sky.beginPath();
+      sky.arc(0, 0, ellipseRadius, Math.PI, Math.PI * 2);
+      sky.stroke();
+      sky.restore();
+      sky.save();
+      sky.scale(1, squash);
+      sky.beginPath();
+      sky.arc(0, 0, ellipseRadius, 0, Math.PI);
+      sky.stroke();
+      sky.restore();
+      sky.restore();
+    };
     orbs.forEach((orb) => {
       const point = rendered.get(orb);
       const radius = orb.radius;
@@ -411,22 +1045,115 @@ function startAtlasSky() {
             sky.fill();
           }
         });
-      } else {
+      } else if (orb.design !== "black-hole") {
         sky.beginPath();
         sky.arc(0, 0, radius, 0, Math.PI * 2);
         sky.stroke();
       }
       if (orb.design === "ringed") {
+        strokeOccludedEllipse(radius, radius * orb.ringScale, orb.ringSquash, orb.ringAngle - orb.angle);
+      }
+      if (orb.design === "orbital") {
+        const orbitAngle = orb.orbitAngle - orb.angle;
+        const outerOrbitRadius = radius * orb.orbitScale * (1 + (orb.orbitCount - 1) * .16);
+        for (let orbitIndex = 0; orbitIndex < orb.orbitCount; orbitIndex += 1) {
+          const orbitRadius = radius * orb.orbitScale * (1 + orbitIndex * .16);
+          strokeOccludedEllipse(radius, orbitRadius, orb.orbitSquash, orbitAngle);
+        }
         sky.save();
-        sky.scale(1, .38);
+        sky.rotate(orbitAngle);
         sky.beginPath();
-        sky.arc(0, 0, radius * 1.35, 0, Math.PI);
-        sky.moveTo(-radius * 1.35, 0);
-        sky.arc(0, 0, radius * 1.35, Math.PI, Math.PI * 1.16);
-        sky.moveTo(Math.cos(Math.PI * 1.84) * radius * 1.35, Math.sin(Math.PI * 1.84) * radius * 1.35);
-        sky.arc(0, 0, radius * 1.35, Math.PI * 1.84, Math.PI * 2);
+        sky.arc(
+          Math.cos(orb.orbitPhase) * outerOrbitRadius,
+          Math.sin(orb.orbitPhase) * outerOrbitRadius * orb.orbitSquash,
+          orb.orbitMoonRadius,
+          0,
+          Math.PI * 2,
+        );
+        sky.fillStyle = `rgba(${core}, ${.2 + point.glow * .18})`;
+        sky.fill();
+        sky.restore();
+      }
+      if (orb.design === "halo") {
+        for (let haloIndex = 0; haloIndex < orb.haloCount; haloIndex += 1) {
+          const haloRadius = radius * (1.12 + (orb.haloScale - 1.12) * (haloIndex + 1) / orb.haloCount);
+          const phase = orb.haloPhase + haloIndex * .5;
+          const gap = .18 + haloIndex * .04;
+          sky.beginPath();
+          sky.arc(0, 0, haloRadius, phase + gap, phase + Math.PI - gap);
+          sky.moveTo(
+            Math.cos(phase + Math.PI + gap) * haloRadius,
+            Math.sin(phase + Math.PI + gap) * haloRadius,
+          );
+          sky.arc(0, 0, haloRadius, phase + Math.PI + gap, phase + Math.PI * 2 - gap);
+          sky.stroke();
+        }
+      }
+      if (orb.design === "conjunction") {
+        const conjunctionAngle = orb.conjunctionAngle - orb.angle;
+        const companionDistance = radius * orb.conjunctionDistance;
+        sky.save();
+        sky.rotate(conjunctionAngle);
+        sky.beginPath();
+        sky.arc(0, 0, companionDistance, -Math.PI * .82, -Math.PI * .08);
+        sky.stroke();
+        sky.beginPath();
+        sky.arc(companionDistance, 0, radius * orb.companionScale, 0, Math.PI * 2);
         sky.stroke();
         sky.restore();
+      }
+      if (orb.design === "cratered") {
+        sky.save();
+        sky.beginPath();
+        sky.arc(0, 0, radius - .5, 0, Math.PI * 2);
+        sky.clip();
+        orb.craters.forEach((crater) => {
+          const craterRadius = crater.dot ? .7 : crater.radius * radius;
+          sky.beginPath();
+          sky.arc(crater.x * radius, crater.y * radius, craterRadius, 0, Math.PI * 2);
+          if (crater.dot) {
+            sky.fillStyle = `rgba(${core}, ${.2 + point.glow * .18})`;
+            sky.fill();
+          } else {
+            sky.stroke();
+          }
+        });
+        sky.restore();
+      }
+      if (orb.design === "gas-giant") {
+        if (orb.gasStyle === "contour") {
+          sky.save();
+          sky.beginPath();
+          sky.arc(0, 0, radius - .5, 0, Math.PI * 2);
+          sky.clip();
+          for (let bandIndex = 0; bandIndex < orb.gasBandCount; bandIndex += 1) {
+            const baseY = orb.gasBandPositions[bandIndex] * radius;
+            sky.beginPath();
+            for (let step = 0; step <= 24; step += 1) {
+              const x = radius * (step / 12 - 1);
+              const y = baseY
+                + Math.sin(x / radius * 3 + orb.gasPhase) * radius * orb.gasFlow
+                + Math.sin(x / radius * 6 - orb.gasPhase) * radius * orb.gasFlow * .32;
+              if (step === 0) sky.moveTo(x, y);
+              else sky.lineTo(x, y);
+            }
+            sky.stroke();
+          }
+          sky.restore();
+        } else {
+          sky.save();
+          sky.beginPath();
+          sky.arc(0, 0, radius - .5, 0, Math.PI * 2);
+          sky.clip();
+          for (let bandIndex = 0; bandIndex < orb.gasBandCount; bandIndex += 1) {
+            const y = orb.gasBandPositions[bandIndex] * radius;
+            sky.beginPath();
+            sky.moveTo(-radius, y);
+            sky.lineTo(radius, y);
+            sky.stroke();
+          }
+          sky.restore();
+        }
       }
       if (orb.design === "sun") {
         const sunRadius = radius * .25;
@@ -458,14 +1185,14 @@ function startAtlasSky() {
         blinkStrength = Math.sin(progress * Math.PI) * blinkingStar.power;
       }
     }
-    stars.forEach((star, index) => {
+    stars.forEach((star) => {
       const point = rendered.get(star);
       const blink = blinkingStar?.star === star ? blinkStrength : 0;
-      const radius = star.radius + point.glow * 1.4 + blink * 1.7;
-      sky.fillStyle = `rgba(239, 227, 206, ${Math.min(1, .48 + point.glow * .52 + blink * .42)})`;
+      const radius = star.radius + point.glow * (star.bright ? 1.4 : .6) + blink * 1.7;
+      sky.fillStyle = `rgba(239, 227, 206, ${Math.min(1, star.opacity + point.glow * (star.bright ? .52 : .28) + blink * .42)})`;
       sky.shadowColor = "rgba(255, 241, 203, .8)";
-      sky.shadowBlur = 2 + point.glow * 10 + blink * 9;
-      if (index % 7 === 0) {
+      sky.shadowBlur = (star.bright ? 2 : .4) + point.glow * 10 + blink * 9;
+      if (star.spiked) {
         sky.beginPath();
         sky.moveTo(point.x, point.y - radius * 2.2);
         sky.lineTo(point.x + radius * .65, point.y - radius * .35);
@@ -516,6 +1243,7 @@ function startAtlasSky() {
         sky.restore();
       }
     }
+    orbs.filter((orb) => orb.design === "black-hole").forEach(drawBlackHole);
     if (moving || blinking || shooting) scheduleDraw(34);
     else if (!document.hidden && !reducedMotion.matches && stars.some((star) => star.driftRadius)) scheduleDraw(100);
   }
