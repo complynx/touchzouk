@@ -228,6 +228,7 @@ func (a *App) logout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) listMedia(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	kind := strings.ToLower(r.URL.Query().Get("kind"))
 	if kind == "" {
 		kind = mediaKindSet
@@ -241,6 +242,9 @@ func (a *App) listMedia(w http.ResponseWriter, r *http.Request) {
 		slog.Error("list media", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not load the sound atlas"})
 		return
+	}
+	if r.URL.Path != "/api/admin/media" {
+		items = publicMedia(items)
 	}
 	a.sortCatalog(r.Context(), kind, items)
 	for index := range items {
@@ -273,16 +277,22 @@ func (a *App) getTimedContent(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not load timed content"})
 		return
 	}
-	w.Header().Set("Cache-Control", "no-cache")
+	if !a.canReadMedia(r, item) {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Cache-Control", "private, no-store")
 	writeJSON(w, http.StatusOK, item.TimedContent)
 }
 
 func (a *App) featuredMedia(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	items, err := a.store.List(r.Context(), mediaKindSet)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not load featured set"})
 		return
 	}
+	items = publicMedia(items)
 	if len(items) == 0 {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no sets published"})
 		return
@@ -385,8 +395,9 @@ func (a *App) updateTimedContent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) serveMedia(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "private, no-store")
 	item, err := a.store.Get(r.Context(), r.PathValue("id"))
-	if err != nil {
+	if err != nil || !a.canReadMedia(r, item) {
 		http.NotFound(w, r)
 		return
 	}
@@ -394,14 +405,11 @@ func (a *App) serveMedia(w http.ResponseWriter, r *http.Request) {
 	switch r.PathValue("asset") {
 	case uploadKindAudio:
 		relative = item.AudioPath
-		w.Header().Set("Cache-Control", "public, max-age=3600")
 	case uploadKindCover:
 		relative = item.CoverPath
-		w.Header().Set("Cache-Control", "no-cache")
 	case "waveform":
 		relative = item.WaveformPath
 		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Cache-Control", "no-cache")
 	default:
 		http.NotFound(w, r)
 		return

@@ -41,6 +41,9 @@ VALUES (
 	assert.Equal(t, "50% 50%", item.CoverPosition)
 	assert.InDelta(t, 1, item.CoverZoom, 0)
 	assert.Empty(t, item.LocationURL)
+	assert.False(t, item.Hidden)
+	assert.Nil(t, item.PublishAt)
+	require.NoError(t, store.migrate(t.Context()), "migration can be retried")
 }
 
 func TestPostgresStoreRoundTrip(t *testing.T) {
@@ -80,6 +83,15 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 	assert.Equal(t, item.Title, stored.Title)
 	assert.Equal(t, item.Tags, stored.Tags)
 	assert.Equal(t, item.LocationURL, stored.LocationURL)
+	publicationTime := now.Add(time.Hour).Truncate(time.Microsecond)
+	item.PublishAt = &publicationTime
+	item.Hidden = true
+	require.NoError(t, store.Update(t.Context(), item))
+	stored, err = store.Get(t.Context(), id)
+	require.NoError(t, err)
+	assert.True(t, stored.Hidden)
+	require.NotNil(t, stored.PublishAt)
+	assert.True(t, publicationTime.Equal(*stored.PublishAt))
 
 	draft := UploadDraft{
 		ID: id, Kind: "audio", Path: "uploads/test.ogg", Title: "Draft", State: "publishing",

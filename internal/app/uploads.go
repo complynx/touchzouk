@@ -19,22 +19,23 @@ import (
 )
 
 type mediaInput struct {
-	AudioUploadID string        `json:"audio_upload_id"`
-	CoverUploadID string        `json:"cover_upload_id"`
-	Kind          string        `json:"kind"`
-	Title         string        `json:"title"`
-	Subtitle      string        `json:"subtitle"`
-	EventName     string        `json:"event_name"`
-	EventURL      string        `json:"event_url"`
-	LocationURL   string        `json:"location_url"`
-	PlayedAt      string        `json:"played_at"`
-	Country       string        `json:"country"`
-	City          string        `json:"city"`
-	Tags          string        `json:"tags"`
-	TelegramURL   string        `json:"telegram_url"`
-	CoverPosition *string       `json:"cover_position"`
-	CoverZoom     *float64      `json:"cover_zoom"`
-	TimedContent  *TimedContent `json:"timed_content"`
+	Publication   *publicationInput `json:"publication"`
+	AudioUploadID string            `json:"audio_upload_id"`
+	CoverUploadID string            `json:"cover_upload_id"`
+	Kind          string            `json:"kind"`
+	Title         string            `json:"title"`
+	Subtitle      string            `json:"subtitle"`
+	EventName     string            `json:"event_name"`
+	EventURL      string            `json:"event_url"`
+	LocationURL   string            `json:"location_url"`
+	PlayedAt      string            `json:"played_at"`
+	Country       string            `json:"country"`
+	City          string            `json:"city"`
+	Tags          string            `json:"tags"`
+	TelegramURL   string            `json:"telegram_url"`
+	CoverPosition *string           `json:"cover_position"`
+	CoverZoom     *float64          `json:"cover_zoom"`
+	TimedContent  *TimedContent     `json:"timed_content"`
 }
 
 type timedContentInput struct {
@@ -745,6 +746,9 @@ func decodeTimedContentInput(w http.ResponseWriter, r *http.Request) (timedConte
 }
 
 func applyMediaInput(item *MediaItem, input mediaInput) error {
+	if err := applyPublication(item, input.Publication); err != nil {
+		return err
+	}
 	item.Kind = input.Kind
 	item.Title = cleanText(input.Title, 180)
 	item.Subtitle = cleanText(input.Subtitle, 240)

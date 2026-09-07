@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600&amp;family=Manrope:wght@300;400;500;600&amp;display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css?v=20">
-  <link rel="stylesheet" href="admin.css?v=32">
+  <link rel="stylesheet" href="admin.css?v=33">
 </head>
 <body class="admin-body">
   <a class="skip-link" href="#media-form">Skip to media form</a>
@@ -123,14 +123,20 @@
             <label class="field field-wide"><span>Location</span><input name="location_url" type="text" inputmode="url" maxlength="2048" placeholder="Google Maps link, coordinates, or Plus Code"></label>
           </fieldset>
 
+          <fieldset class="metadata-fields">
+            <legend>Publication</legend>
+            <label class="field"><span>Visibility</span><select name="publication_mode"><option value="public">Public</option><option value="hidden">Hidden</option><option value="scheduled">Scheduled</option></select></label>
+            <label class="field" data-publication-date hidden><span>Publish at</span><input name="publish_at" type="datetime-local"><small data-publication-zone></small></label>
+          </fieldset>
+
           <div class="form-message" data-form-message role="status" aria-live="polite"></div>
-          <button class="primary-action" type="submit" data-submit-media>Publish media</button>
+          <button class="primary-action" type="submit" data-submit-media>Save media</button>
         </form>
       </section>
 
       <aside class="admin-library" aria-labelledby="library-title">
-        <header class="library-heading"><div><h2 id="library-title">Published media</h2><p>Choose an item to edit or rebuild its waveform.</p></div></header>
-        <div class="library-tabs" aria-label="Filter published media">
+        <header class="library-heading"><div><h2 id="library-title">Media library</h2><p>Choose an item to edit or change its publication.</p></div></header>
+        <div class="library-tabs" aria-label="Filter media">
           <button type="button" data-library-tab="set" aria-pressed="true">Sets <span data-admin-count="set">0</span></button>
           <button type="button" data-library-tab="song" aria-pressed="false">Songs <span data-admin-count="song">0</span></button>
         </div>
@@ -154,6 +160,6 @@
   </template>
 
   <script src="shared-ui.js?v=13"></script>
-  <script src="admin.js?v=63"></script>
+  <script src="admin.js?v=64"></script>
 </body>
 </html>
