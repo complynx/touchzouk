@@ -244,7 +244,11 @@ func (a *App) listMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.URL.Path != "/api/admin/media" {
-		items = publicMedia(items)
+		previewID := ""
+		if _, admin := a.auth.Identity(r); admin {
+			previewID = r.URL.Query().Get("track")
+		}
+		items = publicMedia(items, previewID)
 	}
 	a.sortCatalog(r.Context(), kind, items)
 	for index := range items {
@@ -292,7 +296,7 @@ func (a *App) featuredMedia(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not load featured set"})
 		return
 	}
-	items = publicMedia(items)
+	items = publicMedia(items, "")
 	if len(items) == 0 {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no sets published"})
 		return

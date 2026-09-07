@@ -132,3 +132,61 @@ func TestPublicationInput(t *testing.T) {
 	var malformed mediaInput
 	assert.Error(t, json.Unmarshal([]byte(`{"publication":{"publish_at":"invalid"}}`), &malformed))
 }
+
+func TestCatalogPreviewByID(t *testing.T) {
+	application := testApp(t)
+	session := httptest.NewRecorder()
+	require.NoError(t, application.auth.setSession(session, AdminIdentity{
+		Subject: "admin", Expires: time.Now().Add(time.Hour).Unix(),
+	}))
+	future := time.Now().UTC().Add(time.Hour)
+	for _, kind := range []string{mediaKindSet, mediaKindSong} {
+		for _, item := range []MediaItem{
+			{ID: kind + "-public"},
+			{ID: kind + "-hidden", Hidden: true},
+			{ID: kind + "-scheduled", PublishAt: &future},
+		} {
+			item.Kind, item.Title, item.CreatedAt = kind, item.ID, time.Now().UTC()
+			require.NoError(t, application.store.Create(t.Context(), item))
+		}
+		for _, preview := range []struct {
+			id    string
+			admin bool
+			extra bool
+		}{
+			{"", true, false},
+			{kind + "-public", true, false},
+			{kind + "-hidden", true, true},
+			{kind + "-scheduled", true, true},
+			{kind + "-hidden", false, false},
+			{kind + "-scheduled", false, false},
+			{"missing", true, false},
+		} {
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodGet,
+				"/api/media?kind="+kind+"&track="+preview.id, nil)
+			if preview.admin {
+				request.AddCookie(session.Result().Cookies()[0])
+			}
+			response := httptest.NewRecorder()
+			application.Handler().ServeHTTP(response, request)
+			require.Equal(t, http.StatusOK, response.Code)
+			assert.Contains(t, response.Header().Get("Cache-Control"), "no-store")
+			var catalog struct {
+				Items []MediaItem `json:"items"`
+			}
+			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &catalog))
+			ids := make([]string, 0, len(catalog.Items))
+			for _, item := range catalog.Items {
+				ids = append(ids, item.ID)
+			}
+			expected := []string{kind + "-public"}
+			if preview.extra {
+				expected = append(expected, preview.id)
+			}
+			assert.ElementsMatch(t, expected, ids, "preview=%s admin=%t", preview.id, preview.admin)
+		}
+		stored, err := application.store.Get(t.Context(), kind+"-hidden")
+		require.NoError(t, err)
+		assert.True(t, stored.Hidden, "preview must not publish the track")
+	}
+}

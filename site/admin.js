@@ -2654,6 +2654,16 @@ function renderLibrary() {
     const rowStatus = row.querySelector(".admin-row-status");
     bindCatalogDrag(row, library, item.kind);
     row.querySelector(".edit-media").addEventListener("click", () => editItem(item));
+    row.querySelector(".copy-link").addEventListener("click", async () => {
+      rowStatus.classList.remove("is-error");
+      try {
+        await TouchzoukUI.copyText(TouchzoukUI.trackURL(item.id, 0, "/listen"));
+        rowStatus.textContent = "Link copied.";
+      } catch {
+        rowStatus.classList.add("is-error");
+        rowStatus.textContent = "Could not copy link.";
+      }
+    });
     const pin = row.querySelector(".pin-media");
     if (item.kind !== "set") pin.hidden = true;
     else {

@@ -1800,7 +1800,7 @@ function renderCatalog(kind) {
 
 async function loadCatalog(kind) {
   try {
-    const response = await fetch(`/api/media?kind=${kind}`);
+    const response = await fetch(`/api/media?kind=${kind}&track=${encodeURIComponent(playbackRequest.trackID)}`);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const { items } = await response.json();
     state.catalog[kind] = items;
