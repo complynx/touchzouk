@@ -128,24 +128,32 @@ func TestTimedContentLoadsSeparately(t *testing.T) {
 		}
 		require.NoError(t, application.store.Create(t.Context(), item))
 		catalog := httptest.NewRecorder()
-		application.Handler().ServeHTTP(catalog, httptest.NewRequest(http.MethodGet, "/api/media?kind="+kind, nil))
+		catalogRequest := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/media?kind="+kind, nil)
+		application.Handler().ServeHTTP(catalog, catalogRequest)
 		require.Equal(t, http.StatusOK, catalog.Code)
 		assert.NotContains(t, catalog.Body.String(), "timed_content")
 		assert.Contains(t, catalog.Body.String(), `"id":"`+kind+`"`)
 
 		content := httptest.NewRecorder()
-		application.Handler().ServeHTTP(content, httptest.NewRequest(http.MethodGet, "/api/media/"+kind+"/timed-content", nil))
+		contentRequest := httptest.NewRequestWithContext(
+			t.Context(), http.MethodGet, "/api/media/"+kind+"/timed-content", nil,
+		)
+		application.Handler().ServeHTTP(content, contentRequest)
 		require.Equal(t, http.StatusOK, content.Code)
 		var decoded TimedContent
 		require.NoError(t, json.Unmarshal(content.Body.Bytes(), &decoded))
 		assert.Equal(t, item.TimedContent, decoded)
 	}
 	featured := httptest.NewRecorder()
-	application.Handler().ServeHTTP(featured, httptest.NewRequest(http.MethodGet, "/api/featured", nil))
+	featuredRequest := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/featured", nil)
+	application.Handler().ServeHTTP(featured, featuredRequest)
 	require.Equal(t, http.StatusOK, featured.Code)
 	assert.NotContains(t, featured.Body.String(), "timed_content")
 	missing := httptest.NewRecorder()
-	application.Handler().ServeHTTP(missing, httptest.NewRequest(http.MethodGet, "/api/media/missing/timed-content", nil))
+	missingRequest := httptest.NewRequestWithContext(
+		t.Context(), http.MethodGet, "/api/media/missing/timed-content", nil,
+	)
+	application.Handler().ServeHTTP(missing, missingRequest)
 	assert.Equal(t, http.StatusNotFound, missing.Code)
 
 	server := httptest.NewServer(application.Handler())
