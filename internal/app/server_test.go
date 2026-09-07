@@ -115,6 +115,65 @@ func clientGet(t *testing.T, client *http.Client, target string) *http.Response 
 	return response
 }
 
+func TestTimedContentLoadsSeparately(t *testing.T) {
+	application := testApp(t)
+	for _, kind := range []string{"set", "song"} {
+		item := MediaItem{
+			ID: kind, Kind: kind, Title: kind, DurationSeconds: 30,
+			TimedContent: TimedContent{Text: "Lyrics", Markers: []TextMarker{{Offset: 0, TimeMS: 1000}}},
+			CreatedAt:    time.Now().UTC(),
+		}
+		if kind == "set" {
+			item.TimedContent = TimedContent{Entries: []TimedEntry{{Text: "First song", TimeMS: 0}}}
+		}
+		require.NoError(t, application.store.Create(t.Context(), item))
+		catalog := httptest.NewRecorder()
+		catalogRequest := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/media?kind="+kind, nil)
+		application.Handler().ServeHTTP(catalog, catalogRequest)
+		require.Equal(t, http.StatusOK, catalog.Code)
+		assert.NotContains(t, catalog.Body.String(), "timed_content")
+		assert.Contains(t, catalog.Body.String(), `"id":"`+kind+`"`)
+
+		content := httptest.NewRecorder()
+		contentRequest := httptest.NewRequestWithContext(
+			t.Context(), http.MethodGet, "/api/media/"+kind+"/timed-content", nil,
+		)
+		application.Handler().ServeHTTP(content, contentRequest)
+		require.Equal(t, http.StatusOK, content.Code)
+		var decoded TimedContent
+		require.NoError(t, json.Unmarshal(content.Body.Bytes(), &decoded))
+		assert.Equal(t, item.TimedContent, decoded)
+	}
+	featured := httptest.NewRecorder()
+	featuredRequest := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/featured", nil)
+	application.Handler().ServeHTTP(featured, featuredRequest)
+	require.Equal(t, http.StatusOK, featured.Code)
+	assert.NotContains(t, featured.Body.String(), "timed_content")
+	missing := httptest.NewRecorder()
+	missingRequest := httptest.NewRequestWithContext(
+		t.Context(), http.MethodGet, "/api/media/missing/timed-content", nil,
+	)
+	application.Handler().ServeHTTP(missing, missingRequest)
+	assert.Equal(t, http.StatusNotFound, missing.Code)
+
+	server := httptest.NewServer(application.Handler())
+	defer server.Close()
+	jar, err := cookiejar.New(nil)
+	require.NoError(t, err)
+	client := &http.Client{Jar: jar}
+	response := clientGet(t, client, server.URL+"/api/admin/media?kind=song")
+	assert.Equal(t, http.StatusUnauthorized, response.StatusCode)
+	require.NoError(t, response.Body.Close())
+	response = clientGet(t, client, server.URL+"/admin")
+	require.NoError(t, response.Body.Close())
+	response = clientGet(t, client, server.URL+"/api/admin/media?kind=song")
+	require.Equal(t, http.StatusOK, response.StatusCode)
+	body, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	require.NoError(t, response.Body.Close())
+	assert.Contains(t, string(body), `"text":"Lyrics"`)
+}
+
 func TestAdminStubLoginAndMediaEdit(t *testing.T) {
 	application := testApp(t)
 	server := httptest.NewServer(application.Handler())

@@ -2567,7 +2567,7 @@ async function fetchSettings() {
 }
 
 async function fetchCatalog(kind) {
-  const response = await fetch(`/api/media?kind=${kind}`);
+  const response = await fetch(`/api/admin/media?kind=${kind}`);
   if (!response.ok) throw new Error(`Could not load ${kind}s`);
   return (await response.json()).items;
 }
