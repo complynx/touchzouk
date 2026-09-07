@@ -156,10 +156,12 @@ func (a *App) routes() http.Handler {
 		http.Redirect(w, r, "/listen", http.StatusMovedPermanently)
 	})
 	mux.HandleFunc("GET /api/media", a.listMedia)
+	mux.HandleFunc("GET /api/media/{id}/timed-content", a.getTimedContent)
 	mux.HandleFunc("GET /api/featured", a.featuredMedia)
 	mux.HandleFunc("GET /media/{id}/{asset}", a.serveMedia)
 	mux.HandleFunc("POST /api/admin/session/refresh", a.refreshAdminSession)
 	mux.Handle("GET /api/admin/me", a.auth.RequireAdmin(http.HandlerFunc(a.adminMe)))
+	mux.Handle("GET /api/admin/media", a.auth.RequireAdmin(http.HandlerFunc(a.listMedia)))
 	mux.Handle("GET /api/admin/settings", a.auth.RequireAdmin(http.HandlerFunc(a.adminSettings)))
 	mux.Handle("PUT /api/admin/settings/set-order", a.auth.RequireAdmin(http.HandlerFunc(a.updateSetOrder)))
 	mux.Handle("PUT /api/admin/settings/song-order", a.auth.RequireAdmin(http.HandlerFunc(a.updateSongOrder)))
@@ -244,7 +246,35 @@ func (a *App) listMedia(w http.ResponseWriter, r *http.Request) {
 	for index := range items {
 		a.addMediaURLs(&items[index])
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	if r.URL.Path == "/api/admin/media" {
+		writeJSON(w, http.StatusOK, map[string]any{"items": items})
+		return
+	}
+	metadata := make([]mediaMetadata, len(items))
+	for index, item := range items {
+		metadata[index] = mediaMetadata{MediaItem: item}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": metadata})
+}
+
+// Shadow timed content in public catalog responses; the editor still needs the full item.
+type mediaMetadata struct {
+	MediaItem
+	TimedContent *TimedContent `json:"timed_content,omitempty"`
+}
+
+func (a *App) getTimedContent(w http.ResponseWriter, r *http.Request) {
+	item, err := a.store.Get(r.Context(), r.PathValue("id"))
+	if errors.Is(err, ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "media item not found"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not load timed content"})
+		return
+	}
+	w.Header().Set("Cache-Control", "no-cache")
+	writeJSON(w, http.StatusOK, item.TimedContent)
 }
 
 func (a *App) featuredMedia(w http.ResponseWriter, r *http.Request) {
@@ -271,7 +301,7 @@ func (a *App) featuredMedia(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	a.addMediaURLs(&featured)
-	writeJSON(w, http.StatusOK, featured)
+	writeJSON(w, http.StatusOK, mediaMetadata{MediaItem: featured})
 }
 
 func (a *App) regenerateWaveform(w http.ResponseWriter, r *http.Request) {

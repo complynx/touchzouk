@@ -1389,18 +1389,9 @@ function lyricLines(item = state.current, durationSeconds = item?.duration_secon
   lines.forEach((line) => {
     line.markers = markers.filter((marker) => marker.offset >= line.start && marker.offset <= line.end);
     line.pauses = (content.pauses || []).filter((offset) => offset >= line.start && offset <= line.end).map((offset) => offset - line.start);
-    const lineMarkerOffsets = new Set(line.markers.filter((marker) => marker.offset < runes.length).map((marker) => marker.offset));
-    const pauseOnlyOffsets = new Set([line.start, line.end]);
-    line.pauses.forEach((offset) => pauseOnlyOffsets.add(line.start + offset));
-    // Markers bracketing whitespace describe a natural pause, not karaoke syllables.
-    for (let offset = line.start; offset < line.end; offset += 1) {
-      if (!/\s/u.test(runes[offset]) || !lineMarkerOffsets.has(offset) || !lineMarkerOffsets.has(offset + 1)) continue;
-      pauseOnlyOffsets.add(offset);
-      pauseOnlyOffsets.add(offset + 1);
-    }
     line.time_ms = interpolatedTime(line.start, true);
     line.finish_time_ms = Math.max(line.time_ms, interpolatedTime(line.end));
-    line.karaoke = [...lineMarkerOffsets].some((offset) => offset > line.start && offset < line.end && !pauseOnlyOffsets.has(offset));
+    line.karaoke = line.markers.some((marker) => marker.offset > line.start && marker.offset < line.end);
     const collapsedRange = collapsed.find((range) => range.start <= line.start && range.end >= line.end);
     line.collapsed = Boolean(collapsedRange);
     if (collapsedRange) {
@@ -1447,7 +1438,7 @@ function karaokeState(line, timeMS) {
   if (points[0].position > 0) points.unshift({ offset: 0, position: 0, time_ms: line.time_ms });
   const finalPosition = runes.length + pauses.length;
   if (points.at(-1).position < finalPosition) {
-    points.push({ offset: runes.length, position: finalPosition, time_ms: Math.max(points.at(-1).time_ms + 1, line.end_time_ms) });
+    points.push({ offset: runes.length, position: finalPosition, time_ms: Math.max(points.at(-1).time_ms + 1, line.finish_time_ms) });
   }
   let activeIndex = -1;
   let timingProgress = 0;
@@ -1867,6 +1858,7 @@ async function selectItem(item, autoplay = false) {
   syncShuffleButton();
   drawWaveform();
   if (autoplay) void play();
+  void loadTimedContent(item, request.signal);
   try {
     const response = await fetch(item.waveform_url, { signal: request.signal, cache: "no-cache" });
     if (!response.ok || state.current?.id !== item.id) return;
@@ -1875,6 +1867,22 @@ async function selectItem(item, autoplay = false) {
     state.waveform = waveform.points || [];
     state.rebinned.clear();
     drawWaveform();
+  } catch (error) {
+    if (error.name !== "AbortError") console.error(error);
+  }
+}
+
+async function loadTimedContent(item, signal) {
+  try {
+    const response = await fetch(`/api/media/${encodeURIComponent(item.id)}/timed-content`, { signal, cache: "no-cache" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const content = await response.json();
+    if (signal.aborted || state.current !== item) return;
+    item.timed_content = content;
+    state.lyricLines = item.kind === "song" ? lyricLines(item, audio.duration || item.duration_seconds) : [];
+    renderPlayerText();
+    if (textDialog.open) renderTextDialog();
+    renderPlayerCues();
   } catch (error) {
     if (error.name !== "AbortError") console.error(error);
   }
