@@ -35,9 +35,11 @@ func (item MediaItem) isPublic(now time.Time) bool {
 	return !item.Hidden && (item.PublishAt == nil || !item.PublishAt.After(now))
 }
 
-func publicMedia(items []MediaItem) []MediaItem {
+func publicMedia(items []MediaItem, previewID string) []MediaItem {
 	now := time.Now()
-	return slices.DeleteFunc(items, func(item MediaItem) bool { return !item.isPublic(now) })
+	return slices.DeleteFunc(items, func(item MediaItem) bool {
+		return !item.isPublic(now) && (previewID == "" || item.ID != previewID)
+	})
 }
 
 func (a *App) canReadMedia(r *http.Request, item MediaItem) bool {

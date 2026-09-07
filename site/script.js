@@ -101,7 +101,7 @@ renderWaveform();
 const findRequestedItem = async (id) => {
   const catalogs = await Promise.all(["set", "song"].map(async (kind) => {
     try {
-      const response = await fetch(`/api/media?kind=${kind}`);
+      const response = await fetch(`/api/media?kind=${kind}&track=${encodeURIComponent(id)}`);
       if (!response.ok) return { failed: true, items: [] };
       return { failed: false, items: (await response.json()).items || [] };
     } catch (error) {

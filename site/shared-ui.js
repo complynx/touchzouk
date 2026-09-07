@@ -125,8 +125,8 @@
     return { trackID, seconds };
   }
 
-  function trackURL(trackID, seconds = 0) {
-    const url = new URL(window.location.pathname, window.location.origin);
+  function trackURL(trackID, seconds = 0, pathname = window.location.pathname) {
+    const url = new URL(pathname, window.location.origin);
     url.searchParams.set("track", trackID);
     const wholeSeconds = Math.max(0, Math.floor(Number(seconds) || 0));
     if (wholeSeconds) url.searchParams.set("t", String(wholeSeconds));
