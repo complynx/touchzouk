@@ -2333,9 +2333,32 @@ form.elements.title.addEventListener("input", () => {
   if (form.elements.title.value !== state.autoTitle) state.autoTitle = "";
 });
 form.elements.tags.addEventListener("input", () => renderTagSuggestions());
+
+function localPublicationDate(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
+
+function updatePublicationFields() {
+  const scheduled = form.elements.publication_mode.value === "scheduled";
+  document.querySelector("[data-publication-date]").hidden = !scheduled;
+  form.elements.publish_at.required = scheduled;
+  document.querySelector("[data-publication-zone]").textContent = `Your time zone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`;
+  submit.textContent = state.editing ? "Save changes" : "Save media";
+}
+
+form.elements.publication_mode.addEventListener("change", updatePublicationFields);
+updatePublicationFields();
+
 function mediaPayload() {
   const isSet = form.elements.kind.value === "set";
   return {
+    publication: {
+      hidden: form.elements.publication_mode.value === "hidden",
+      publish_at: form.elements.publication_mode.value === "scheduled"
+        ? new Date(form.elements.publish_at.value).toISOString() : null,
+    },
     audio_upload_id: state.audioUpload?.id || "",
     cover_upload_id: state.coverUpload?.id || "",
     kind: form.elements.kind.value,
@@ -2393,6 +2416,7 @@ function resetEditor() {
   state.lyricsPlaybackPauseCount = 0;
   state.selectedLyricMarker = null;
   form.reset();
+  updatePublicationFields();
   setPreviewVolume(previewVolume.value);
   setKind("set");
   audioDrop.hidden = false;
@@ -2412,7 +2436,7 @@ function resetEditor() {
   editorTitle.textContent = "New media";
   editorContext.textContent = "Audio and cover uploads begin immediately.";
   cancelEdit.hidden = true;
-  submit.textContent = "Publish media";
+  submit.textContent = "Save media";
 }
 
 function editItem(item) {
@@ -2440,6 +2464,10 @@ function editItem(item) {
   form.elements.tags.value = (item.tags || []).join(", ");
   renderTagSuggestions(item.kind);
   form.elements.telegram_url.value = item.telegram_url || "";
+  form.elements.publication_mode.value = item.hidden ? "hidden"
+    : item.publish_at && new Date(item.publish_at) > new Date() ? "scheduled" : "public";
+  form.elements.publish_at.value = localPublicationDate(item.publish_at);
+  updatePublicationFields();
   state.timedContent = cloneTimedContent(item.timed_content);
   state.lyricsCursor = 0;
   state.lyricsCursorPauseCount = 0;
@@ -2517,6 +2545,12 @@ form.addEventListener("submit", async (event) => {
     return;
   }
   if (!form.reportValidity()) return;
+  if (form.elements.publication_mode.value === "scheduled"
+      && !(new Date(form.elements.publish_at.value).getTime() > Date.now())) {
+    setMessage("Choose a publication time in the future.", true);
+    form.elements.publish_at.focus();
+    return;
+  }
   if (!state.editing && !state.audioUpload) { setMessage("Wait for the audio upload and analysis to finish.", true); return; }
   if (!state.editing && !state.coverUpload) { setMessage("Upload a cover before publishing.", true); return; }
   if (state.editing && state.coverReplacementStarted && !state.coverUpload) { setMessage("Wait for the replacement cover to finish uploading, or choose it again if the upload failed.", true); return; }
@@ -2526,7 +2560,7 @@ form.addEventListener("submit", async (event) => {
   const payload = mediaPayload();
   editorSavePending = true;
   setEditorBusy(true);
-  setMessage(state.editing ? "Saving changes…" : "Publishing media…");
+  setMessage("Saving media…");
   try {
     const { response, result } = await enqueueMutation(state.editing ? `/api/admin/media/${state.editing.id}` : "/api/admin/media", {
       method: state.editing ? "PATCH" : "POST",
@@ -2590,7 +2624,9 @@ function renderCatalogContext(element, item) {
 }
 
 function catalogDetails(item) {
-  return [formatDuration(item.duration_seconds), ...(item.tags || [])].join(" · ");
+  const publication = item.hidden ? "Hidden" : item.publish_at && new Date(item.publish_at) > new Date()
+    ? `Scheduled: ${new Date(item.publish_at).toLocaleString()}` : "Public";
+  return [publication, formatDuration(item.duration_seconds), ...(item.tags || [])].join(" · ");
 }
 
 function renderLibrary() {
@@ -2599,7 +2635,7 @@ function renderLibrary() {
   library.replaceChildren();
   document.querySelector("[data-catalog-order-hint]").textContent = `Drag ${state.libraryKind}s into their public order.`;
   if (!items.length) {
-    library.innerHTML = `<div class="admin-empty">No ${state.libraryKind}s published.</div>`;
+    library.innerHTML = `<div class="admin-empty">No ${state.libraryKind}s saved.</div>`;
     return;
   }
   const template = document.querySelector("#admin-media-template");

@@ -16,6 +16,8 @@ import (
 )
 
 type MediaItem struct {
+	Hidden          bool         `json:"hidden"`
+	PublishAt       *time.Time   `json:"publish_at,omitempty"`
 	ID              string       `json:"id"`
 	Kind            string       `json:"kind"`
 	Title           string       `json:"title"`
@@ -42,26 +44,28 @@ type MediaItem struct {
 }
 
 type mediaRecord struct {
-	ID               string    `db:"id"`
-	Kind             string    `db:"kind"`
-	Title            string    `db:"title"`
-	Subtitle         string    `db:"subtitle"`
-	EventName        string    `db:"event_name"`
-	EventURL         string    `db:"event_url"`
-	LocationURL      string    `db:"location_url"`
-	PlayedAt         string    `db:"played_at"`
-	Country          string    `db:"country"`
-	City             string    `db:"city"`
-	TagsJSON         string    `db:"tags_json"`
-	TelegramURL      string    `db:"telegram_url"`
-	DurationSeconds  float64   `db:"duration_seconds"`
-	AudioPath        string    `db:"audio_path"`
-	CoverPath        string    `db:"cover_path"`
-	CoverPosition    string    `db:"cover_position"`
-	CoverZoom        float64   `db:"cover_zoom"`
-	WaveformPath     string    `db:"waveform_path"`
-	TimedContentJSON string    `db:"timed_content_json"`
-	CreatedAt        time.Time `db:"created_at"`
+	Hidden           bool       `db:"hidden"`
+	PublishAt        *time.Time `db:"publish_at"`
+	ID               string     `db:"id"`
+	Kind             string     `db:"kind"`
+	Title            string     `db:"title"`
+	Subtitle         string     `db:"subtitle"`
+	EventName        string     `db:"event_name"`
+	EventURL         string     `db:"event_url"`
+	LocationURL      string     `db:"location_url"`
+	PlayedAt         string     `db:"played_at"`
+	Country          string     `db:"country"`
+	City             string     `db:"city"`
+	TagsJSON         string     `db:"tags_json"`
+	TelegramURL      string     `db:"telegram_url"`
+	DurationSeconds  float64    `db:"duration_seconds"`
+	AudioPath        string     `db:"audio_path"`
+	CoverPath        string     `db:"cover_path"`
+	CoverPosition    string     `db:"cover_position"`
+	CoverZoom        float64    `db:"cover_zoom"`
+	WaveformPath     string     `db:"waveform_path"`
+	TimedContentJSON string     `db:"timed_content_json"`
+	CreatedAt        time.Time  `db:"created_at"`
 }
 
 type TimedEntry struct {
@@ -99,6 +103,7 @@ func newMediaRecord(item MediaItem) (mediaRecord, error) {
 		return mediaRecord{}, err
 	}
 	return mediaRecord{
+		Hidden: item.Hidden, PublishAt: item.PublishAt,
 		ID: item.ID, Kind: item.Kind, Title: item.Title, Subtitle: item.Subtitle,
 		EventName: item.EventName, EventURL: item.EventURL, LocationURL: item.LocationURL, PlayedAt: item.PlayedAt,
 		Country: item.Country, City: item.City, TagsJSON: string(tags), TelegramURL: item.TelegramURL,
@@ -110,6 +115,7 @@ func newMediaRecord(item MediaItem) (mediaRecord, error) {
 
 func (record mediaRecord) mediaItem() (MediaItem, error) {
 	item := MediaItem{
+		Hidden: record.Hidden, PublishAt: record.PublishAt,
 		ID: record.ID, Kind: record.Kind, Title: record.Title, Subtitle: record.Subtitle,
 		EventName: record.EventName, EventURL: record.EventURL,
 		LocationURL: record.LocationURL, PlayedAt: record.PlayedAt,
@@ -235,6 +241,16 @@ CREATE TABLE IF NOT EXISTS upload_drafts (
 	if err := s.ensureMediaTimedContent(ctx); err != nil {
 		return fmt.Errorf("migrate timed content: %w", err)
 	}
+	if err := s.ensureMediaColumn(ctx, "hidden",
+		`ALTER TABLE media_items ADD COLUMN IF NOT EXISTS hidden BOOLEAN NOT NULL DEFAULT FALSE`,
+		`ALTER TABLE media_items ADD COLUMN hidden BOOLEAN NOT NULL DEFAULT FALSE`); err != nil {
+		return fmt.Errorf("migrate media visibility: %w", err)
+	}
+	if err := s.ensureMediaColumn(ctx, "publish_at",
+		`ALTER TABLE media_items ADD COLUMN IF NOT EXISTS publish_at TIMESTAMP`,
+		`ALTER TABLE media_items ADD COLUMN publish_at TIMESTAMP`); err != nil {
+		return fmt.Errorf("migrate publication time: %w", err)
+	}
 	return nil
 }
 
@@ -317,11 +333,11 @@ func (s *Store) bind(query string) string {
 const insertMediaQuery = `INSERT INTO media_items (
 id, kind, title, subtitle, event_name, event_url, location_url, played_at, country, city,
 tags_json, telegram_url, duration_seconds, audio_path, cover_path, cover_position, cover_zoom, waveform_path,
-timed_content_json, created_at
+timed_content_json, created_at, hidden, publish_at
 ) VALUES (
 :id, :kind, :title, :subtitle, :event_name, :event_url, :location_url, :played_at, :country, :city,
 :tags_json, :telegram_url, :duration_seconds, :audio_path, :cover_path, :cover_position,
-:cover_zoom, :waveform_path, :timed_content_json, :created_at
+:cover_zoom, :waveform_path, :timed_content_json, :created_at, :hidden, :publish_at
 )`
 
 func (s *Store) Create(ctx context.Context, item MediaItem) error {
@@ -453,7 +469,7 @@ event_url = :event_url, location_url = :location_url, played_at = :played_at, co
 tags_json = :tags_json, telegram_url = :telegram_url, duration_seconds = :duration_seconds,
 audio_path = :audio_path, cover_path = :cover_path, cover_position = :cover_position,
 cover_zoom = :cover_zoom, waveform_path = :waveform_path,
-timed_content_json = :timed_content_json WHERE id = :id`, record)
+timed_content_json = :timed_content_json, hidden = :hidden, publish_at = :publish_at WHERE id = :id`, record)
 	if err != nil {
 		return err
 	}
@@ -756,7 +772,7 @@ func (s *Store) SettingsWithPrefix(ctx context.Context, prefix string) (map[stri
 
 const selectMediaColumns = `id, kind, title, subtitle, event_name, event_url, location_url, played_at,
 country, city, tags_json, telegram_url, duration_seconds, audio_path, cover_path,
-cover_position, cover_zoom, waveform_path, timed_content_json, created_at`
+cover_position, cover_zoom, waveform_path, timed_content_json, created_at, hidden, publish_at`
 
 func (s *Store) List(ctx context.Context, kind string) ([]MediaItem, error) {
 	query := s.bind(`SELECT ` + selectMediaColumns + `
