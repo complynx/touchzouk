@@ -628,11 +628,21 @@ function renderTimedList() {
   const rows = [];
   state.timedContent.entries.forEach((entry, index) => {
     const row = document.createElement("div");
-    const time = document.createElement("time");
+    const time = document.createElement("button");
     const input = document.createElement("input");
     const remove = document.createElement("button");
     row.className = "timed-entry";
+    time.type = "button";
+    time.className = "timed-entry-time";
     time.textContent = formatMarkerTime(entry.time_ms);
+    time.setAttribute("aria-label", `Jump to song ${index + 1} at ${time.textContent}`);
+    time.disabled = !previewDurationSeconds();
+    time.addEventListener("click", () => {
+      const duration = previewDurationSeconds();
+      if (!duration) return;
+      previewAudio.currentTime = Math.max(0, Math.min(duration, entry.time_ms / 1000));
+      paintPreviewProgress();
+    });
     input.value = entry.text;
     input.maxLength = 180;
     input.setAttribute("aria-label", `Song ${index + 1} name`);

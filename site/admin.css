@@ -118,7 +118,9 @@
 .timed-actions { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .45rem; }
 .timed-list { display: grid; gap: 0; margin-top: .6rem; }
 .timed-entry { display: grid; grid-template-columns: 4.6rem minmax(0, 1fr) auto; align-items: center; gap: .4rem; }
-.timed-entry time { color: var(--gold-dim); font: .62rem var(--display); font-variant-numeric: tabular-nums; }
+.timed-entry-time { padding: 0; border: 0; color: var(--gold-dim); background: transparent; font: .62rem var(--display); font-variant-numeric: tabular-nums; text-align: left; cursor: pointer; }
+.timed-entry-time:is(:hover, :focus-visible):enabled { color: var(--gold-bright); text-decoration: underline; }
+.timed-entry-time:disabled { cursor: default; }
 .timed-entry input { min-width: 0; height: 2.2rem; padding: 0 .55rem; border: 1px solid rgb(var(--gold-rgb) / .22); color: var(--cream); background: rgb(1 7 19 / .5); font: .68rem var(--body); }
 .timed-entry button { min-height: 2.2rem; }
 .timed-entry-insert { position: relative; z-index: 2; height: 0; pointer-events: none; }
