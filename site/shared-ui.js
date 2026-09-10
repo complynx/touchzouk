@@ -95,6 +95,9 @@
     const seekFromPointer = (event) => onSeek(pointerRatio(event, surface));
     input.addEventListener("pointerdown", (event) => {
       if (event.button !== 0 || activePointerId !== null) return;
+      // Native range handling can overwrite the waveform position on mouseup.
+      event.preventDefault();
+      input.focus({ preventScroll: true });
       activePointerId = event.pointerId;
       onSeekStart?.();
       input.setPointerCapture(event.pointerId);
