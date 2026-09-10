@@ -249,7 +249,6 @@ audio.addEventListener("pause", () => { if (!startingPlayback && !seeking) playR
 
 TouchzoukUI.bindSeeker({
   input: seek,
-  surface: waveform,
   onSeekStart: () => {
     seekWasPlaying = playRequested;
     seeking = true;

@@ -2089,7 +2089,6 @@ waveCanvas.addEventListener("pointerleave", () => {
 });
 TouchzoukUI.bindSeeker({
   input: seek,
-  surface: waveCanvas,
   onSeekStart: () => {
     state.seekWasPlaying = state.playRequested;
     state.seeking = true;

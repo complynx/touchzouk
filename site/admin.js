@@ -1264,7 +1264,6 @@ previewAudio.addEventListener("pause", () => {
 });
 TouchzoukUI.bindSeeker({
   input: previewSeek,
-  surface: uploadWaveform,
   onSeekStart: () => {
     state.previewSeekWasPlaying = state.previewPlayRequested;
     state.previewSeeking = true;
