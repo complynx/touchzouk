@@ -290,6 +290,10 @@ button, a { -webkit-tap-highlight-color: transparent; }
 }
 .media-wave-row > time { color: var(--gold); font-family: var(--display); font-size: var(--media-time-size); font-variant-numeric: tabular-nums; line-height: 1; text-align: center; }
 .media-seek-track:has(input:focus-visible) :is(.waveform, canvas) { filter: brightness(1.14) drop-shadow(0 0 .24rem rgb(var(--gold-rgb) / .34)); }
+/* An invisible zero-width thumb maps native range values to the full waveform. */
+.media-seek-track input { appearance: none; padding: 0; border: 0; touch-action: none; }
+.media-seek-track input::-webkit-slider-thumb { appearance: none; width: 0; height: 1rem; border: 0; }
+.media-seek-track input::-moz-range-thumb { width: 0; height: 1rem; border: 0; }
 .location-link { display: inline-flex; align-items: center; gap: .28rem; color: inherit; text-decoration: none; }
 .location-link svg { width: .72rem; height: .9rem; flex: 0 0 auto; fill: currentColor; }
 .location-link:is(:hover, :focus-visible) { color: var(--gold-bright); }

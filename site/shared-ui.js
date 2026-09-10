@@ -90,25 +90,16 @@
     };
   }
 
-  function bindSeeker({ input, surface, onSeek, onSeekStart, onSeekEnd }) {
+  function bindSeeker({ input, onSeek, onSeekStart, onSeekEnd }) {
     let activePointerId = null;
-    const seekFromPointer = (event) => onSeek(pointerRatio(event, surface));
     input.addEventListener("pointerdown", (event) => {
       if (event.button !== 0 || activePointerId !== null) return;
-      // Native range handling can overwrite the waveform position on mouseup.
-      event.preventDefault();
-      input.focus({ preventScroll: true });
       activePointerId = event.pointerId;
       onSeekStart?.();
       input.setPointerCapture(event.pointerId);
-      seekFromPointer(event);
-    });
-    input.addEventListener("pointermove", (event) => {
-      if (event.pointerId === activePointerId) seekFromPointer(event);
     });
     input.addEventListener("pointerup", (event) => {
       if (event.pointerId !== activePointerId) return;
-      seekFromPointer(event);
       activePointerId = null;
       onSeekEnd?.();
     });
@@ -117,7 +108,7 @@
       activePointerId = null;
       onSeekEnd?.();
     });
-    input.addEventListener("input", () => { if (activePointerId === null) onSeek(Number(input.value) / 1000); });
+    input.addEventListener("input", () => onSeek(Number(input.value) / 1000));
   }
 
   function playbackRequest(search = window.location.search) {
