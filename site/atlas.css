@@ -85,7 +85,10 @@
 .now-copy strong { max-width: 36rem; font-size: .88rem; letter-spacing: .03em; }
 .now-copy small { overflow: hidden; color: var(--mist); font-size: .6rem; text-overflow: ellipsis; white-space: nowrap; }
 .now-controls { display: flex; flex: 0 0 auto; align-items: center; gap: .35rem; }
-.now-controls [data-repeat-one] { position: absolute; right: .32rem; bottom: .18rem; display: none; font-size: .42rem; }
+.now-controls [data-repeat][aria-pressed="false"] { color: var(--gold-bright); }
+.now-controls [data-repeat][aria-pressed="false"]::before { background: rgb(var(--panel-rgb) / .82); box-shadow: none; }
+.now-controls [data-repeat] svg { width: 1.25rem; height: 1.25rem; }
+.now-controls [data-repeat-one] { display: none; fill: currentColor; stroke: var(--gold-bright); stroke-width: 4px; paint-order: stroke fill; font-family: var(--body); font-size: 15px; font-weight: 800; }
 .now-controls .repeat-one [data-repeat-one] { display: block; }
 .player-wave-row { grid-area: wave; }
 .wave-canvas { position: relative; height: 2.8rem; }
