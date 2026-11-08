@@ -73,7 +73,9 @@ func run() int {
 			}
 		}
 		cancel()
-		<-serveError
+		if serveErr := <-serveError; serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			slog.Warn("serve during shutdown", "error", serveErr)
+		}
 	}
 	if closeErr := service.Close(); closeErr != nil {
 		slog.Error("close service", "error", closeErr)

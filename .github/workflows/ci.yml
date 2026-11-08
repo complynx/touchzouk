@@ -31,16 +31,22 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
+      - name: Select Go release
+        id: go
+        run: |
+          echo "version=$(awk '/^go / {split($2, v, "."); print v[1] "." v[2] ".x"}' go.mod)" >> "$GITHUB_OUTPUT"
+
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version-file: go.mod
+          go-version: ${{ steps.go.outputs.version }}
+          check-latest: true
           cache-dependency-path: go.sum
 
       - name: Run formatters and linters
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.13.1
+          version: v2.15.0
 
       - name: Verify modules
         run: |
