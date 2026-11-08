@@ -6,14 +6,15 @@ updates:
       interval: "weekly"
 
   - package-ecosystem: "docker"
-    directory: "/"
+    directories:
+      - "/"
+      - "/testing"
     schedule:
       interval: "weekly"
-
-  - package-ecosystem: "docker"
-    directory: "/testing"
-    schedule:
-      interval: "weekly"
+    groups:
+      go-toolchain:
+        patterns:
+          - "golang"
 
   - package-ecosystem: "github-actions"
     directory: "/"
